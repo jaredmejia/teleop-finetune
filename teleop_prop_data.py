@@ -14,7 +14,7 @@ NUM_IMG_FRAMES = 6
 WINDOW_DUR = 3
 
 
-class ConditionalTeleopDataset(utils.data.Dataset):
+class TeleopCompletionDataset(utils.data.Dataset):
     def __init__(
         self,
         img_paths,
@@ -33,7 +33,6 @@ class ConditionalTeleopDataset(utils.data.Dataset):
         return len(self.img_paths)
 
     def __getitem__(self, idx):
-        img_list = []
         txt_list = []
         for i, img_path in enumerate(self.img_paths[idx]):
             txt_path = f"{img_path[:-4]}txt"

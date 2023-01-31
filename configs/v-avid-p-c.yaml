@@ -1,0 +1,44 @@
+model_name: "v-avid-p-c"
+save_path: "/home/vdean/jared_contact_mic/teleop-finetune/trained_models"
+
+dataset:
+  name: "teleop-completion"
+
+  video_dur: 3 # 0.5
+  video_rate: 30 # 16.
+  video_transform: "VideoPrep"
+  video_transform_args:
+    num_frames: 6 # 8
+    crop_size: 128 # 80
+
+  return_audio: true
+  audio_type: "glove"
+  audio_dur: 3. # 2.
+  audio_rate: 16000 # 11025
+  audio_transform: "AudioPrep"
+  audio_transform_args:
+    mono: true
+    duration: 3. # 2.
+    volume: 0.1
+  spec_transform: "SpectrogramPrep"
+  spec_transform_args:
+    duration: 0.5 # 2.
+    rate: 16000 # 11025
+    n_fft: 512 # 25 # 512
+    n_bands: 64 # 80
+    hop_length: 10 #275
+
+model:
+  arch: "AvidR3M"
+  checkpoint: "/home/vdean/jared_contact_mic/teleop-finetune/trained_models/best_model_video_only.pth"
+  args:
+    avid_name: "avid-no-ft-video"
+    avid_cfg_path: "/home/vdean/jared_contact_mic/avid-glove/config/gloveaudio/avcat-avid-ft-video.yaml"
+    frozen_backbone: true
+    avid_emb_dim: 512
+    r3m_emb_dim: 512
+    hidden_dim: 512
+    disable_backbone_dropout: true
+    modality: "video"
+
+  
