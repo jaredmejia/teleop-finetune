@@ -2,8 +2,6 @@ import argparse
 import numpy as np
 import os
 import pickle
-import sys
-import torch
 
 import PIL.Image as Image
 
@@ -20,61 +18,71 @@ class TeleopCompletionDataset(utils.data.Dataset):
         img_paths,
         curr_target_idxs,
         transforms,
-        num_images_cat=8,
-        num_audio_cat=32,
+        include_audio=False,
+        include_orig_audio=False,
     ):
         self.img_paths = img_paths
         self.curr_target_idxs = curr_target_idxs
         self.transforms = transforms
-        self.num_images_cat = num_images_cat
-        self.num_audio_cat = num_audio_cat
+        self.include_audio = include_audio
+        self.include_orig_audio = include_orig_audio
 
     def __len__(self):
         return len(self.img_paths)
 
     def __getitem__(self, idx):
-        txt_list = []
-        for i, img_path in enumerate(self.img_paths[idx]):
-            txt_path = f"{img_path[:-4]}txt"
-            txt_arr = np.loadtxt(txt_path)
-            txt_arr = txt_arr.T
-            txt_list.append(txt_arr)
+        data = {}
 
-        audio_data = np.concatenate(txt_list, axis=1)
+        # INPUT VIDEO
         video_data = [
             Image.open(img_path)
             for img_path in self.img_paths[idx][
                 :: WINDOW_DUR * CAM_FPS // NUM_IMG_FRAMES
             ]
         ]
-        curr_idx, target_idx = self.curr_target_idxs[idx]
+        data["video"] = video_data
 
+        # TARGET IMAGE / TARGET VALUE
+        curr_idx, target_idx = self.curr_target_idxs[idx]
         target_img_idx = idx + target_idx - curr_idx
         target_img_path = self.img_paths[target_img_idx][
             -1
         ]  # get last image from list of images
         target_img = Image.open(target_img_path)
         target_val = curr_idx / target_idx
+        data["image"] = target_img
+        data["target"] = target_val
 
-        avg_audio_data = np.mean(audio_data, axis=0)
-        # pad avg audio data with the average value up to size (96000,) at the front of the array
-        if avg_audio_data.shape[0] < 96000:
-            avg_audio_data = np.concatenate(
-                (
-                    np.full((96000 - avg_audio_data.shape[0]), np.mean(avg_audio_data)),
-                    avg_audio_data,
+        if self.include_audio:
+            # AUDIO
+            txt_list = []
+            for i, img_path in enumerate(self.img_paths[idx]):
+                txt_path = f"{img_path[:-4]}txt"
+                txt_arr = np.loadtxt(txt_path)
+                txt_arr = txt_arr.T
+                txt_list.append(txt_arr)
+
+            audio_data = np.concatenate(txt_list, axis=1)
+            data["audio"] = audio_data
+
+        if self.include_orig_audio:
+            # ORIGINAL AUDIO
+            avg_audio_data = np.mean(audio_data, axis=0)
+            # pad avg audio data with the average value up to size (96000,) at the front of the array
+            if avg_audio_data.shape[0] < 96000:
+                avg_audio_data = np.concatenate(
+                    (
+                        np.full(
+                            (96000 - avg_audio_data.shape[0]), np.mean(avg_audio_data)
+                        ),
+                        avg_audio_data,
+                    )
                 )
-            )
-        else:
-            avg_audio_data = avg_audio_data[:96000]
+            else:
+                avg_audio_data = avg_audio_data[-96000:]
 
-        data = {
-            "video": video_data,
-            "audio": audio_data,
-            "image": target_img,
-            "target": [target_val],
-            "orig_audio": avg_audio_data,
-        }
+            data["orig_audio"] = avg_audio_data
+
         data_t = self.transforms(data)
 
         return data_t
@@ -109,9 +117,7 @@ def get_dataloaders(
     return train_loader, val_loader
 
 
-def get_teleop_data_targets(
-    teleop_paths, teleop_dir, num_audio_cat=32, start_idx=2, window_overlap=False
-):
+def get_teleop_data_targets(teleop_paths, teleop_dir):
     """Get data and targets for teleop data."""
     img_paths = []
     curr_target_idxs = []
@@ -152,10 +158,6 @@ def get_teleop_data_targets(
 
         assert global_idx == len(img_paths), f"{global_idx} != {len(img_paths)}"
 
-    # print(curr_target_idxs)
-    import pdb
-
-    pdb.set_trace()
     assert len(img_paths) == len(curr_target_idxs)
 
     return img_paths, curr_target_idxs, traj_ids_idxs

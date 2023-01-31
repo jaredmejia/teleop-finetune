@@ -1,4 +1,4 @@
-model_name: "av-avid-p-c"
+model_name: "av-avid-p-shf-c"
 save_path: "/home/vdean/jared_contact_mic/teleop-finetune/trained_models"
 
 dataset:
@@ -15,7 +15,7 @@ dataset:
   audio_type: "glove"
   audio_dur: 3. # 2.
   audio_rate: 16000 # 11025
-  audio_transform: "AudioPrep"
+  audio_transform: "SpecEncoder"
   audio_transform_args:
     mono: true
     duration: 3. # 2.
@@ -30,7 +30,7 @@ dataset:
 
 model:
   arch: "AvidR3M"
-  checkpoint: "/home/vdean/jared_contact_mic/teleop-finetune/trained_models/best_model_av-avid-p-c.pth"
+  checkpoint: "/home/vdean/jared_contact_mic/teleop-finetune/trained_models/best_model_av-avid-p-shf-c.pth"
   args:
     avid_name: "avid-no-ft"
     avid_cfg_path: "/home/vdean/jared_contact_mic/avid-glove/config/gloveaudio/avcat-avid-ft-jointloss.yaml"

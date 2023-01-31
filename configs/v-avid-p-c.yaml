@@ -30,7 +30,7 @@ dataset:
 
 model:
   arch: "AvidR3M"
-  checkpoint: "/home/vdean/jared_contact_mic/teleop-finetune/trained_models/best_model_video_only.pth"
+  checkpoint: "/home/vdean/jared_contact_mic/teleop-finetune/trained_models/best_model_v-avid-p-c.pth"
   args:
     avid_name: "avid-no-ft-video"
     avid_cfg_path: "/home/vdean/jared_contact_mic/avid-glove/config/gloveaudio/avcat-avid-ft-video.yaml"

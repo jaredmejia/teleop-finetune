@@ -25,9 +25,6 @@ from teleop_prop_data import TeleopCompletionDataset, load_target_data, get_data
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-avid_cfg_path = "/home/vdean/jared_contact_mic/avid-glove/config/gloveaudio/avcat-avid-ft-jointloss.yaml"
-avid_video_cfg_path = "/home/vdean/jared_contact_mic/avid-glove/config/gloveaudio/avcat-avid-ft-video.yaml"
-
 
 def train_loop(model, optimizer, criterion, dataloader):
     """Train model on training set
@@ -46,7 +43,7 @@ def train_loop(model, optimizer, criterion, dataloader):
     for _, data in tqdm.tqdm(enumerate(dataloader), total=len(dataloader)):
         optimizer.zero_grad()
         preds = model(data)
-        loss = criterion(preds, data["target"])
+        loss = criterion(preds.squeeze(), data["target"])
         loss.backward()
         optimizer.step()
         running_loss += loss.item() * data["target"].size(0)
@@ -70,7 +67,7 @@ def eval_loop(model, criterion, dataloader):
     with torch.no_grad():
         for _, data in tqdm.tqdm(enumerate(dataloader), total=len(dataloader)):
             preds = model(data)
-            loss = criterion(preds, data["target"])
+            loss = criterion(preds.squeeze(), data["target"])
             running_loss += loss.item() * data["target"].size(0)
 
     return running_loss / len(dataloader.sampler)
@@ -98,8 +95,8 @@ def vis_preds(
         for sample_idx in range(min(batch_size, max_samples)):
             log_dict = {
                 "sample_idx": sample_idx,
-                "pred": preds[sample_idx],
-                "target": target[sample_idx],
+                "pred": wandb.Histogram(preds),
+                "target": wandb.Histogram(target),
             }
 
             # GOAL IMAGE
@@ -151,6 +148,7 @@ def vis_preds(
                 plt.colorbar()
                 plt.savefig("./temp_imgs/spec.png")
                 plt.clf()
+                plt.close()
                 log_dict["audio"] = wandb.Image("./temp_imgs/spec.png")
 
             # ORIG AUDIO
@@ -176,7 +174,7 @@ def parse_arguments():
     parser.add_argument(
         "--model_config_file", type=str, default="./configs/av-avid-p-c.yaml"
     )
-    parser.add_argument("--extract_dir", type=str, default="./prep_data/shf_prep")
+    parser.add_argument("--extract_dir", type=str, default="./prep_data/avid_prep")
     parser.add_argument("--validation_split", type=float, default=0.2)
     parser.add_argument("--random_seed", type=int, default=47)
     parser.add_argument("--frozen_backbone", type=bool, default=True)
@@ -245,8 +243,18 @@ def main():
 
     # get dataset
     image_paths, curr_target_idxs, traj_ids_idxs = load_target_data(extract_dir)
-    transforms = backbone_transforms(model_args["avid_cfg_path"])
-    dataset = TeleopCompletionDataset(image_paths, curr_target_idxs, transforms)
+    transforms = backbone_transforms(
+        model_args["avid_name"],
+        model_args["avid_cfg_path"],
+        audio_transform=model_config["dataset"]["audio_transform"],
+    )
+    dataset = TeleopCompletionDataset(
+        image_paths,
+        curr_target_idxs,
+        transforms,
+        include_audio=include_audio,
+        include_orig_audio=include_orig_audio,
+    )
 
     train_loader, val_loader = get_dataloaders(
         dataset,
@@ -300,7 +308,7 @@ def main():
             scheduler.step(val_loss)
 
             # log visualizations / preds
-            if epoch % args.log_freq == 0:
+            if epoch % log_freq == 0:
                 vis_preds(
                     model,
                     val_loader,
