@@ -66,7 +66,13 @@ def backbone_transforms(avid_cfg):
 
 
 def multi_collate(batch):
-    video_batch, img_batch, audio_batch, target_batch, orig_audio_batch = [], [], [], [], []
+    video_batch, img_batch, audio_batch, target_batch, orig_audio_batch = (
+        [],
+        [],
+        [],
+        [],
+        [],
+    )
     include_video, include_img, include_audio = True, True, True
     for data in batch:
         if "video" not in data.keys() or not include_video:
@@ -87,7 +93,6 @@ def multi_collate(batch):
         target_batch.append(data["target"])
 
         orig_audio_batch.append(data["orig_audio"])
-
 
     batched_data = {}
     if include_video:
@@ -119,7 +124,7 @@ class PropReg(nn.Module):
         r3m_emb_dim=512,
         hidden_dim=512,
         disable_backbone_dropout=True,
-        modality="audio-video"
+        modality="audio-video",
     ):
         super().__init__()
         self.avid_backbone = avid_backbone
@@ -203,13 +208,13 @@ class PropReg(nn.Module):
 
 def train_loop(model, optimizer, criterion, dataloader):
     """Train model on training set
-    
+
     Args:
         model (nn.Module): model to train
         optimizer (torch.optim.Optimizer): optimizer
         criterion (nn.Module): loss function
         dataloader (torch.utils.data.DataLoader): dataloader for training set
-        
+
         Returns:
             float: average loss over training set
     """
@@ -228,13 +233,13 @@ def train_loop(model, optimizer, criterion, dataloader):
 
 def eval_loop(model, criterion, dataloader, log_media=False):
     """Evaluate model on validation set
-    
+
     Args:
         model (nn.Module): model to evaluate
         criterion (nn.Module): loss function
         dataloader (torch.utils.data.DataLoader): dataloader for validation set
         log_media (bool, optional): whether to log media. Defaults to False.
-        
+
     Returns:
         float: average loss on validation set
     """
@@ -249,9 +254,7 @@ def eval_loop(model, criterion, dataloader, log_media=False):
             if idx == 0 and log_media:
                 sample_idx = np.random.randint(0, data["target"].size(0))
                 # log video, image, audio, and target
-                video = (
-                    data["video"][sample_idx].detach().cpu()
-                )  
+                video = data["video"][sample_idx].detach().cpu()
                 image = (
                     data["image"][sample_idx].detach().cpu().numpy().transpose(1, 2, 0)
                 )
@@ -310,12 +313,12 @@ def eval_loop(model, criterion, dataloader, log_media=False):
 
 def vis_loop(model, dataloader, max_samples=15):
     """Visualize a few samples from the dataloader
-    
+
     Args:
         model (torch.nn.Module): model to visualize
         dataloader (torch.utils.data.DataLoader): dataloader to visualize
         max_samples (int, optional): max number of samples to visualize. Defaults to 10.
-        
+
     Returns:
         None
     """
@@ -326,71 +329,72 @@ def vis_loop(model, dataloader, max_samples=15):
         preds = model(sample_batch).detach().cpu().numpy().squeeze()
         target = sample_batch["target"].detach().cpu().numpy().squeeze()
         for sample_idx in range(min(batch_size, max_samples)):
-                # log video, image, audio, and target
-                video = (
-                    sample_batch["video"][sample_idx].detach().cpu()
-                )  
-                image = (
-                    sample_batch["image"][sample_idx].detach().cpu().numpy().transpose(1, 2, 0)
-                )
-                audio = sample_batch["audio"][sample_idx].detach().cpu().numpy()
-                orig_audio = sample_batch["orig_audio"][sample_idx].detach().cpu().numpy()
+            # log video, image, audio, and target
+            video = sample_batch["video"][sample_idx].detach().cpu()
+            image = (
+                sample_batch["image"][sample_idx]
+                .detach()
+                .cpu()
+                .numpy()
+                .transpose(1, 2, 0)
+            )
+            audio = sample_batch["audio"][sample_idx].detach().cpu().numpy()
+            orig_audio = sample_batch["orig_audio"][sample_idx].detach().cpu().numpy()
 
-                # convert to PIL image
-                image = Image.fromarray((image * 255).astype(np.uint8))
+            # convert to PIL image
+            image = Image.fromarray((image * 255).astype(np.uint8))
 
-                # unnormalize video frames and convert to numpy
-                video_frames = [video[:, i, :, :] for i in range(video.shape[1])]
-                video_frames = [
-                    invNormalize(frame).numpy().transpose(1, 2, 0)
-                    for frame in video_frames
-                ]
-                video_frames = [
-                    Image.fromarray((frame * 255).astype(np.uint8))
-                    for frame in video_frames
-                ]
-                video_frames[0].save(
-                    "./sample_vid.gif",
-                    save_all=True,
-                    append_images=video_frames[1:],
-                    optimize=False,
-                    duration=500,
-                    loop=0,
-                )
+            # unnormalize video frames and convert to numpy
+            video_frames = [video[:, i, :, :] for i in range(video.shape[1])]
+            video_frames = [
+                invNormalize(frame).numpy().transpose(1, 2, 0) for frame in video_frames
+            ]
+            video_frames = [
+                Image.fromarray((frame * 255).astype(np.uint8))
+                for frame in video_frames
+            ]
+            video_frames[0].save(
+                "./sample_vid.gif",
+                save_all=True,
+                append_images=video_frames[1:],
+                optimize=False,
+                duration=500,
+                loop=0,
+            )
 
-                # display melspec of audio
-                plt.figure()
-                s_db = librosa.amplitude_to_db(np.abs(audio[0]), ref=np.max)
-                librosa.display.specshow(s_db, sr=16000, x_axis="time", y_axis="linear")
-                plt.colorbar()
-                plt.savefig("./spec.png")
-                plt.clf()
+            # display melspec of audio
+            plt.figure()
+            s_db = librosa.amplitude_to_db(np.abs(audio[0]), ref=np.max)
+            librosa.display.specshow(s_db, sr=16000, x_axis="time", y_axis="linear")
+            plt.colorbar()
+            plt.savefig("./spec.png")
+            plt.clf()
 
-                # display untransformed audio
-                plt.figure()
-                plt.plot(list(range(orig_audio.shape[0])), orig_audio)
-                plt.ylim([1600, 2400])
-                plt.savefig("./orig_audio.png")
-                plt.clf()
-                plt.close()
+            # display untransformed audio
+            plt.figure()
+            plt.plot(list(range(orig_audio.shape[0])), orig_audio)
+            plt.ylim([1600, 2400])
+            plt.savefig("./orig_audio.png")
+            plt.clf()
+            plt.close()
 
-                # save to wandb
-                wandb.log(
-                    {
-                        "video": wandb.Video(
-                            "./sample_vid.gif",
-                            fps=30,
-                            format="gif",
-                            caption=f"preds: {preds[sample_idx]:.2f}, target: {target[sample_idx]:.2f}",
-                        ),
-                        "goal image": wandb.Image(image),
-                        "audio": wandb.Image("./spec.png"),
-                        "orig_audio": wandb.Image("./orig_audio.png"),
-                        "preds": wandb.Histogram(preds),
-                        "target": wandb.Histogram(target),
-                        "sample_idx": sample_idx,
-                    }
-                )
+            # save to wandb
+            wandb.log(
+                {
+                    "video": wandb.Video(
+                        "./sample_vid.gif",
+                        fps=30,
+                        format="gif",
+                        caption=f"preds: {preds[sample_idx]:.2f}, target: {target[sample_idx]:.2f}",
+                    ),
+                    "goal image": wandb.Image(image),
+                    "audio": wandb.Image("./spec.png"),
+                    "orig_audio": wandb.Image("./orig_audio.png"),
+                    "preds": wandb.Histogram(preds),
+                    "target": wandb.Histogram(target),
+                    "sample_idx": sample_idx,
+                }
+            )
 
 
 def main():
@@ -408,7 +412,12 @@ def main():
     parser.add_argument("--model_name", type=str, default="no_window_overlap")
     parser.add_argument("--log_freq", type=int, default=4)
     parser.add_argument("--disable_backbone_dropout", type=bool, default=True)
-    parser.add_argument("--modality", type=str, default="audio-video", choices=["audio", "video", "audio-video"])
+    parser.add_argument(
+        "--modality",
+        type=str,
+        default="audio-video",
+        choices=["audio", "video", "audio-video"],
+    )
     parser.add_argument("--mode", type=str, default="train", choices=["train", "vis"])
     args = parser.parse_args()
 
@@ -431,15 +440,17 @@ def main():
         wandb.init(project="finetune-teleop", entity="contact-mic", name=model_name)
         wandb.config.update(args)
     elif mode == "vis":
-        wandb.init(project="finetune-teleop", entity="contact-mic", name=f"{model_name}_vis")
+        wandb.init(
+            project="finetune-teleop", entity="contact-mic", name=f"{model_name}_vis"
+        )
         wandb.config.update(args)
 
     if modality == "audio-video":
-        avid_name = 'avid-no-ft'
+        avid_name = "avid-no-ft"
         avid_cfg = yaml.safe_load(open(avid_cfg_path))
         avid_emb_dim = 1024
     elif modality == "video":
-        avid_name = 'avid-no-ft-video'
+        avid_name = "avid-no-ft-video"
         avid_cfg = yaml.safe_load(open(avid_video_cfg_path))
         avid_emb_dim = 512
     else:
@@ -459,7 +470,6 @@ def main():
     ).to(device)
     wandb.watch(model)
 
-
     # DATA
     print(f"\n##### DATA #####")
     image_paths, curr_target_idxs, traj_ids_idxs = load_target_data(extract_dir)
@@ -475,7 +485,7 @@ def main():
     print(
         f"Train size: {len(train_loader.sampler)}, Val size: {len(val_loader.sampler)}"
     )
-    
+
     # reset seed due to model differences in random initialization
     set_seeds(random_seed)
 
@@ -518,7 +528,7 @@ def main():
                 best_val_loss = val_loss
                 torch.save(model.state_dict(), f"./models/best_model_{model_name}.pth")
             scheduler.step(val_loss)
-    
+
     elif mode == "vis":
         # VISUALIZE
         model.load_state_dict(torch.load(f"./models/best_model_{model_name}.pth"))

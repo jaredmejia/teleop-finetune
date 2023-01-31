@@ -61,11 +61,14 @@ class ConditionalTeleopDataset(utils.data.Dataset):
         # pad avg audio data with the average value up to size (96000,) at the front of the array
         if avg_audio_data.shape[0] < 96000:
             avg_audio_data = np.concatenate(
-                (np.full((96000 - avg_audio_data.shape[0]), np.mean(avg_audio_data)), avg_audio_data)
+                (
+                    np.full((96000 - avg_audio_data.shape[0]), np.mean(avg_audio_data)),
+                    avg_audio_data,
+                )
             )
         else:
             avg_audio_data = avg_audio_data[:96000]
-            
+
         data = {
             "video": video_data,
             "audio": audio_data,
@@ -110,8 +113,7 @@ def get_dataloaders(
 def get_teleop_data_targets(
     teleop_paths, teleop_dir, num_audio_cat=32, start_idx=2, window_overlap=False
 ):
-    """Get data and targets for teleop data.
-    """
+    """Get data and targets for teleop data."""
     img_paths = []
     curr_target_idxs = []
     traj_ids_idxs = []
