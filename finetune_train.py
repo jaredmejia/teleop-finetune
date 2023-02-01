@@ -242,7 +242,7 @@ def main():
     )
 
     # get dataset
-    image_paths, curr_target_idxs, traj_ids_idxs = load_target_data(extract_dir)
+    image_paths, curr_target_idxs, traj_ids_idxs, actions = load_target_data(extract_dir)
     transforms = backbone_transforms(
         model_args["avid_name"],
         model_args["avid_cfg_path"],

@@ -117,64 +117,89 @@ def get_dataloaders(
     return train_loader, val_loader
 
 
-def get_teleop_data_targets(teleop_paths, teleop_dir):
+def get_teleop_data_targets(teleop_paths, teleop_dir, mode="train"):
     """Get data and targets for teleop data."""
-    img_paths = []
-    curr_target_idxs = []
-    traj_ids_idxs = []
-    global_idx = 0
+    img_paths = []  # sequential list of image paths
+    curr_target_idxs = []  # list of tuples (relative_idx, relative_target_idx)
+    traj_ids_idxs = []  # list of tuples (traj_id, traj_start_idx)
+    actions = {}  # dict of lists of actions for each trajectory
+    traj_ids = [] # list of tuples (traj_id, relative_idx))
 
     num_frames_window = int(WINDOW_DUR * CAM_FPS)
     stride_len = num_frames_window // NUM_IMG_FRAMES
 
-    # reording teleop paths for train/val split
-    train_idxs = []
-    val_idxs = []
-    for i in range(0, 80, 20):
-        train_idxs.extend(range(i, i + 15))
-        val_idxs.extend(range(i + 15, i + 20))
+    if mode == 'train':
+        # reording teleop paths for train/val split
+        # ensures that training set has 15 trajectories for each object
+        # ensures validation set has unseen 5 trajectories for each object
+        train_idxs = []
+        val_idxs = []
+        for i in range(0, 80, 20):
+            train_idxs.extend(range(i, i + 15))
+            val_idxs.extend(range(i + 15, i + 20))
 
-    train_teleop_paths = [teleop_paths[i] for i in train_idxs]
-    val_teleop_paths = [teleop_paths[i] for i in val_idxs]
-    teleop_paths = train_teleop_paths + val_teleop_paths
+        train_teleop_paths = [teleop_paths[i] for i in train_idxs]
+        val_teleop_paths = [teleop_paths[i] for i in val_idxs]
+        teleop_paths = train_teleop_paths + val_teleop_paths
 
+    elif mode == 'test':
+        # teleop paths will consist of 20 trajectories (5 for each object)
+        test_idxs = []
+        for i in range(0, 80, 20):
+            test_idxs.extend(range(i, i+5))
+        teleop_paths = [teleop_paths[i] for i in test_idxs]
+
+    else:
+        NotImplementedError
+
+    global_idx = 0
     for path in teleop_paths:
         data_path = os.path.join(teleop_dir, path["traj_id"])
         traj_img_paths = [
             os.path.join(data_path, img_file) for img_file in path["cam0c"]
         ]
         traj_ids_idxs.append((path["traj_id"], global_idx))
+        actions[path["traj_id"]] = []
 
-        idxs = list(range(stride_len, len(traj_img_paths), stride_len))
+        if mode == "train":
+            idxs = list(range(stride_len, len(traj_img_paths), stride_len))
+        else: # mode == "test"
+            idxs = list(range(stride_len, len(traj_img_paths)))
+
         for i in range(len(idxs)):
             img_path_cat = traj_img_paths[max(0, idxs[i] - num_frames_window) : idxs[i]]
             img_paths.append(img_path_cat)
             curr_target_idxs.append((i, len(idxs) - 1))
-            print(
-                f"idx: {i}, window size: {idxs[i] - max(0, idxs[i] - num_frames_window)}"
-            )
+            actions[path["traj_id"]].append(path["actions"][idxs[i]])
+            traj_ids.append((path["traj_id"], i))
 
         global_idx += len(idxs)
 
         assert global_idx == len(img_paths), f"{global_idx} != {len(img_paths)}"
 
-    assert len(img_paths) == len(curr_target_idxs)
+    assert len(img_paths) == len(curr_target_idxs) == len(traj_ids)
 
-    return img_paths, curr_target_idxs, traj_ids_idxs
+    return img_paths, curr_target_idxs, traj_ids_idxs, actions, traj_ids
 
 
 def load_target_data(extract_dir):
     curr_target_idxs_path = os.path.join(extract_dir, "curr_target_idxs.pkl")
     img_paths_path = os.path.join(extract_dir, "image_paths.pkl")
     traj_ids_idxs_path = os.path.join(extract_dir, "traj_ids_idxs.pkl")
+    actions_path = os.path.join(extract_dir, "actions.pkl")
+    traj_ids_path = os.path.join(extract_dir, "traj_ids.pkl")
     with open(curr_target_idxs_path, "rb") as f:
         curr_target_idxs = pickle.load(f)
     with open(img_paths_path, "rb") as f:
         image_paths = pickle.load(f)
     with open(traj_ids_idxs_path, "rb") as f:
         traj_ids_idxs = pickle.load(f)
+    with open(actions_path, "rb") as f:
+        actions = pickle.load(f)
+    with open(traj_ids_path, "rb") as f:
+        traj_ids = pickle.load(f)
 
-    return image_paths, curr_target_idxs, traj_ids_idxs
+    return image_paths, curr_target_idxs, traj_ids_idxs, actions, traj_ids
 
 
 def main():
@@ -183,7 +208,7 @@ def main():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="./prep_data",
+        default="./prep_data/3s_window/",
         help="Directory to save the output",
     )
     parser.add_argument(
@@ -198,6 +223,7 @@ def main():
         default="/home/vdean/franka_demo/logs/jared_chopping_exps_v4/",
         help="Directory with teleop data",
     )
+    parser.add_argument("--mode", type=str, default="train", help="train or test")
     args = parser.parse_args()
     output_dir = args.output_dir
     teleop_pickle = args.teleop_pickle
@@ -206,8 +232,8 @@ def main():
     with open(teleop_pickle, "rb") as f:
         teleop_paths = pickle.load(f)
 
-    image_paths, curr_target_idxs, traj_ids_idxs = get_teleop_data_targets(
-        teleop_paths, teleop_dir
+    image_paths, curr_target_idxs, traj_ids_idxs, actions, traj_ids = get_teleop_data_targets(
+        teleop_paths, teleop_dir, args.mode
     )
     print(f"Total number of samples: {len(image_paths)}")
 
@@ -228,6 +254,16 @@ def main():
     print(f"Saving traj_ids_idxs to {traj_ids_idxs_fn}")
     with open(traj_ids_idxs_fn, "wb") as f:
         pickle.dump(traj_ids_idxs, f)
+
+    actions_fn = os.path.join(output_dir, "actions.pkl")
+    print(f"Saving actions to {actions_fn}")
+    with open(actions_fn, "wb") as f:
+        pickle.dump(actions, f)
+
+    traj_ids_fn = os.path.join(output_dir, "traj_ids.pkl")
+    print(f"Saving traj_ids to {traj_ids_fn}")
+    with open(traj_ids_fn, "wb") as f:
+        pickle.dump(traj_ids, f)
 
 
 if __name__ == "__main__":
