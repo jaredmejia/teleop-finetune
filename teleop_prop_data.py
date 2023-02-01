@@ -182,25 +182,31 @@ def get_teleop_data_targets(teleop_paths, teleop_dir, mode="train"):
     return img_paths, curr_target_idxs, traj_ids_idxs, actions, traj_ids
 
 
-def load_target_data(extract_dir):
+def load_target_data(extract_dir, mode="train"):
     curr_target_idxs_path = os.path.join(extract_dir, "curr_target_idxs.pkl")
     img_paths_path = os.path.join(extract_dir, "image_paths.pkl")
     traj_ids_idxs_path = os.path.join(extract_dir, "traj_ids_idxs.pkl")
-    actions_path = os.path.join(extract_dir, "actions.pkl")
-    traj_ids_path = os.path.join(extract_dir, "traj_ids.pkl")
     with open(curr_target_idxs_path, "rb") as f:
         curr_target_idxs = pickle.load(f)
     with open(img_paths_path, "rb") as f:
         image_paths = pickle.load(f)
     with open(traj_ids_idxs_path, "rb") as f:
         traj_ids_idxs = pickle.load(f)
-    with open(actions_path, "rb") as f:
-        actions = pickle.load(f)
-    with open(traj_ids_path, "rb") as f:
-        traj_ids = pickle.load(f)
 
-    return image_paths, curr_target_idxs, traj_ids_idxs, actions, traj_ids
+    if mode == 'test':
+        actions_path = os.path.join(extract_dir, "actions.pkl")
+        traj_ids_path = os.path.join(extract_dir, "traj_ids.pkl")
 
+        with open(actions_path, "rb") as f:
+            actions = pickle.load(f)
+        with open(traj_ids_path, "rb") as f:
+            traj_ids = pickle.load(f)
+
+        return image_paths, curr_target_idxs, traj_ids_idxs, actions, traj_ids
+
+    else:
+        return image_paths, curr_target_idxs, traj_ids_idxs
+    
 
 def main():
     # argparse

@@ -179,13 +179,14 @@ def parse_arguments():
     parser.add_argument("--random_seed", type=int, default=47)
     parser.add_argument("--frozen_backbone", type=bool, default=True)
     parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--frozen_learning_rate", type=float, default=0.001)
-    parser.add_argument("--unfrozen_learning_rate", type=float, default=0.0001)
+    parser.add_argument("--mlp_learning_rate", type=float, default=0.001)
+    parser.add_argument("--backbone_learning_rate", type=float, default=0.0001)
     parser.add_argument("--frozen_epochs", type=int, default=10)
     parser.add_argument("--unfrozen_epochs", type=int, default=10)
     parser.add_argument("--log_freq", type=int, default=4)
     parser.add_argument("--num_samples_log", type=int, default=15)
     parser.add_argument("--mode", type=str, default="train", choices=["train", "vis"])
+    parser.add_argument("--optimizer", type=str, default="adam", choices=["adam", "sgd"])
     return parser.parse_args()
 
 
@@ -207,8 +208,8 @@ def main():
 
     # training args
     BATCH_SIZE = args.batch_size
-    FROZEN_LR = args.frozen_learning_rate
-    UNFROZEN_LR = args.unfrozen_learning_rate
+    MLP_LR = args.mlp_learning_rate
+    BACKBONE_LR = args.backbone_learning_rate
     FROZEN_EPOCHS = args.frozen_epochs
     UNFROZEN_EPOCHS = args.unfrozen_epochs
 
@@ -242,7 +243,7 @@ def main():
     )
 
     # get dataset
-    image_paths, curr_target_idxs, traj_ids_idxs, actions = load_target_data(extract_dir)
+    image_paths, curr_target_idxs, traj_ids_idxs = load_target_data(extract_dir)
     transforms = backbone_transforms(
         model_args["avid_name"],
         model_args["avid_cfg_path"],
@@ -274,19 +275,44 @@ def main():
         # TRAIN
         criterion = torch.nn.MSELoss()
 
-        # set optimizer and scheduler for unfrozen parameters
-        optimizer = torch.optim.SGD(
-            filter(lambda p: p.requires_grad, model.parameters()), lr=FROZEN_LR
-        )
+        # if frozen, only train the last layer, otherwise use discriminative learning rates
+        if args.frozen_backbone:
+            trainable_params = filter(lambda p: p.requires_grad, model.parameters())
+        else:
+            trainable_params = [
+                {"params": model.avid_backbone.parameters(), "lr": BACKBONE_LR},
+                {"params": model.r3m_backbone.parameters(), "lr": BACKBONE_LR},
+                {"params": model.batchnorm.parameters(), "lr": MLP_LR},
+                {"params": model.feat_fusion.parameters(), "lr": MLP_LR}
+            ]
+
+        if args.optimizer == "adam":
+            optimizer = torch.optim.Adam(trainable_params, lr=MLP_LR)
+        elif args.optimizer == "sgd":
+            optimizer = torch.optim.SGD(trainable_params, lr=MLP_LR)
+
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode="min", patience=4
         )
 
         best_val_loss = np.inf
         for epoch in range(FROZEN_EPOCHS + UNFROZEN_EPOCHS):
-            if epoch == FROZEN_EPOCHS:
+            if epoch == FROZEN_EPOCHS and args.frozen_backbone:
                 model.unfreeze_backbone()
-                optimizer = torch.optim.SGD(model.parameters(), lr=UNFROZEN_LR)
+
+                # discriminative learning rates
+                trainable_params = [
+                    {"params": model.avid_backbone.parameters(), "lr": BACKBONE_LR},
+                    {"params": model.r3m_backbone.parameters(), "lr": BACKBONE_LR},
+                    {"params": model.batchnorm.parameters(), "lr": MLP_LR},
+                    {"params": model.feat_fusion.parameters(), "lr": MLP_LR}
+                ]
+
+                if args.optimizer == "adam":
+                    optimizer = torch.optim.Adam(trainable_params, lr=MLP_LR)
+                elif args.optimizer == "sgd":
+                    optimizer = torch.optim.SGD(trainable_params, lr=MLP_LR)
+
                 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
                     optimizer, mode="min", patience=4
                 )

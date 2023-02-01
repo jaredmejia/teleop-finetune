@@ -19,21 +19,28 @@ class AvidR3M(nn.Module):
         hidden_dim=512,
         disable_backbone_dropout=True,
         modality="audio-video",
+        batchnorm=False,
     ):
         super().__init__()
 
         self.avid_backbone, self.r3m_backbone = self.model_prep(
             avid_name, avid_cfg_path
         )
-        self.frozen_backbone = frozen_backbone
+
+        self.batchnorm = batchnorm
+        if batchnorm:
+            self.batchnorm = nn.BatchNorm1d(avid_emb_dim + r3m_emb_dim)
+
         self.feat_fusion = nn.Sequential(
             nn.Linear(avid_emb_dim + r3m_emb_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, 1),
         )
+
         self.modality = modality
         self.disable_backbone_dropout = disable_backbone_dropout
-
+        
+        self.frozen_backbone = frozen_backbone
         if self.frozen_backbone:
             self.freeze_backbone()
         else:
@@ -103,6 +110,10 @@ class AvidR3M(nn.Module):
             img_emb = self.r3m_backbone(data["image"])
 
         cat_emb = torch.cat((vid_aud_emb, img_emb), dim=1)
+
+        if self.batchnorm:
+            cat_emb = self.batchnorm(cat_emb)
+
         pred = self.feat_fusion(cat_emb)
 
         return pred
