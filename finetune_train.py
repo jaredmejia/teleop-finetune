@@ -24,6 +24,7 @@ from teleop_prop_data import TeleopCompletionDataset, load_target_data, get_data
 
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+NUM_VALID_TRAJS = 20
 
 
 def train_loop(model, optimizer, criterion, dataloader):
@@ -109,7 +110,7 @@ def vis_preds(
                 .transpose(1, 2, 0)
             )
             # convert to PIL image
-            image = Image.fromarray((image * 255).astype(np.uint8))
+            image = Image.fromarray((image).astype(np.uint8))
             log_dict["goal_image"] = wandb.Image(image)
 
             # INPUT VIDEO
@@ -172,12 +173,13 @@ def vis_preds(
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--model_config_file", type=str, default="./configs/av-avid-p-c.yaml"
+        "--model_config_file", type=str, required=True, help="path to model config file"
     )
-    parser.add_argument("--extract_dir", type=str, default="./prep_data/avid_prep")
+    parser.add_argument(
+        "--extract_dir", type=str, default="./prep_data/3s_window_train"
+    )
     parser.add_argument("--validation_split", type=float, default=0.2)
     parser.add_argument("--random_seed", type=int, default=47)
-    parser.add_argument("--frozen_backbone", type=bool, default=True)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--mlp_learning_rate", type=float, default=0.001)
     parser.add_argument("--backbone_learning_rate", type=float, default=0.0001)
@@ -186,7 +188,9 @@ def parse_arguments():
     parser.add_argument("--log_freq", type=int, default=4)
     parser.add_argument("--num_samples_log", type=int, default=15)
     parser.add_argument("--mode", type=str, default="train", choices=["train", "vis"])
-    parser.add_argument("--optimizer", type=str, default="adam", choices=["adam", "sgd"])
+    parser.add_argument(
+        "--optimizer", type=str, default="adam", choices=["adam", "sgd"]
+    )
     return parser.parse_args()
 
 
@@ -197,6 +201,7 @@ def main():
     model_config = yaml.safe_load(open(args.model_config_file, "r"))
     model_args = model_config["model"]["args"]
     model_name = model_config["model_name"]
+    frozen_backbone = model_args["frozen_backbone"]
 
     # data / misc args
     extract_dir = args.extract_dir
@@ -262,7 +267,7 @@ def main():
         traj_ids_idxs=traj_ids_idxs,
         collate_fn=collate_func,
         batch_size=BATCH_SIZE,
-        validation_split=validation_split,
+        num_valid_trajs=NUM_VALID_TRAJS,
     )
     print(
         f"Train size: {len(train_loader.sampler)}, Val size: {len(val_loader.sampler)}"
@@ -276,14 +281,14 @@ def main():
         criterion = torch.nn.MSELoss()
 
         # if frozen, only train the last layer, otherwise use discriminative learning rates
-        if args.frozen_backbone:
+        if frozen_backbone:
             trainable_params = filter(lambda p: p.requires_grad, model.parameters())
         else:
             trainable_params = [
                 {"params": model.avid_backbone.parameters(), "lr": BACKBONE_LR},
                 {"params": model.r3m_backbone.parameters(), "lr": BACKBONE_LR},
                 {"params": model.batchnorm.parameters(), "lr": MLP_LR},
-                {"params": model.feat_fusion.parameters(), "lr": MLP_LR}
+                {"params": model.feat_fusion.parameters(), "lr": MLP_LR},
             ]
 
         if args.optimizer == "adam":
@@ -297,7 +302,7 @@ def main():
 
         best_val_loss = np.inf
         for epoch in range(FROZEN_EPOCHS + UNFROZEN_EPOCHS):
-            if epoch == FROZEN_EPOCHS and args.frozen_backbone:
+            if epoch == FROZEN_EPOCHS and frozen_backbone:
                 model.unfreeze_backbone()
 
                 # discriminative learning rates
@@ -305,7 +310,7 @@ def main():
                     {"params": model.avid_backbone.parameters(), "lr": BACKBONE_LR},
                     {"params": model.r3m_backbone.parameters(), "lr": BACKBONE_LR},
                     {"params": model.batchnorm.parameters(), "lr": MLP_LR},
-                    {"params": model.feat_fusion.parameters(), "lr": MLP_LR}
+                    {"params": model.feat_fusion.parameters(), "lr": MLP_LR},
                 ]
 
                 if args.optimizer == "adam":

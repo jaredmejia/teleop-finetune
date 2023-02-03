@@ -2,6 +2,7 @@ from sklearn.neighbors import KDTree
 import argparse
 import joblib
 import os
+import pickle
 import sys
 import torch
 import tqdm
@@ -16,6 +17,7 @@ sys.path.insert(1, "/home/vdean/franka_learning_jared/")
 from pretraining import load_encoder, load_transforms
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+NUM_VALID_TRAJS = 20
 
 
 def get_embeddings(dl, model):
@@ -29,11 +31,14 @@ def get_embeddings(dl, model):
     embeddings = torch.cat(emb_list, dim=0)
     return embeddings
 
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_config_file", type=str)
-    parser.add_argument("--extract_dir", type=str, default='./prep_data/3s_window_test/')
-    parser.add_argument("--output_dir", type=str, default='./prep_data/3s_window_test/')
+    parser.add_argument(
+        "--extract_dir", type=str, default="./prep_data/3s_window_test/"
+    )
+    parser.add_argument("--output_dir", type=str, default="./prep_data/3s_window_test/")
     parser.add_argument("--batch_size", type=int, default=256)
 
     args = parser.parse_args()
@@ -55,7 +60,13 @@ def main():
         include_audio=include_audio,
         include_orig_audio=False,
     )
-    image_paths, curr_target_idxs, _, _, _ = load_target_data(args.extract_dir)
+    image_paths, curr_target_idxs, traj_ids_idxs = load_target_data(args.extract_dir)
+
+    # filtering out validation trajectories for knn
+    split_idx = traj_ids_idxs[-NUM_VALID_TRAJS][1]
+    image_paths = image_paths[:split_idx]
+    curr_target_idxs = curr_target_idxs[:split_idx]
+
     dataset = TeleopCompletionDataset(
         image_paths,
         curr_target_idxs,
@@ -71,15 +82,27 @@ def main():
     )
 
     # get embeddings
-    embeddings = get_embeddings(dl, model) 
+    embeddings = get_embeddings(dl, model)
 
-    # fit knn to embeddings
-    knn_model = KDTree(embeddings)
+    # standardize embeddings and save mean and std
+    emb_mean = embeddings.mean(dim=0)
+    emb_std = embeddings.std(dim=0)
+    standardized_embeddings = (embeddings - emb_mean) / emb_std
+    emb_stats = {"mean": emb_mean, "std": emb_std}
+    emb_stats_fn = os.path.join(args.output_dir, f"emb_stats_{model_name}.pkl")
+    print(f"Saving embedding stats to {emb_stats_fn}")
+    with open(emb_stats_fn, "wb") as f:
+        pickle.dump(emb_stats, f)
+
+    # fit knn to standardized embeddings
+    knn_model = KDTree(standardized_embeddings)
 
     # save knn model
     knn_fn = os.path.join(args.output_dir, f"knn_model_{model_name}.joblib")
+    print(f"knn data shape: {knn_model.data.shape}")
     print(f"Saving knn model to {knn_fn}")
     joblib.dump(knn_model, knn_fn)
+
 
 if __name__ == "__main__":
     main()

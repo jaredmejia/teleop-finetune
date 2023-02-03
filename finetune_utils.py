@@ -1,9 +1,14 @@
+import librosa
+import librosa.display
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import sys
 import yaml
+import wandb
 
 from torchvision import transforms as T
+from PIL import Image
 
 from finetune_preprocessing import SpecEncoder
 
@@ -45,7 +50,7 @@ def backbone_transforms(avid_name, avid_cfg_path, audio_transform="AudioPrep"):
         spec_encoder = SpecEncoder()
         print("Using SpecEncoder for audio preprocessing")
 
-    def backbone_transforms_f(data):
+    def backbone_transforms_f(data, inference=False, device="cuda:0"):
         if audio_transform == "AudioPrep":
             data_t = avid_transforms(data)  # video / audio
         elif audio_transform == "SpecEncoder":
@@ -64,6 +69,11 @@ def backbone_transforms(avid_name, avid_cfg_path, audio_transform="AudioPrep"):
         for data_type in data.keys():
             if data_type not in data_t.keys():
                 data_t[data_type] = torch.tensor(data[data_type])
+
+        if inference:
+            for data_type in data_t.keys():
+                if data_type != "target":
+                    data_t[data_type] = data_t[data_type].unsqueeze(0).to(device)
 
         return data_t
 
@@ -108,3 +118,56 @@ def multi_collate(batch, device=None, include_audio=True, include_orig_audio=Fal
         batched_data["orig_audio"] = orig_audio_batch
 
     return batched_data
+
+
+### WANDB ###
+
+
+def wandb_video(
+    video, name="./temp_imgs/sample_vid.gif", fps=30, duration=500, caption=None
+):
+    video_frames = [video[:, i, :, :] for i in range(video.shape[1])]
+    video_frames = [
+        invNormalize(frame).numpy().transpose(1, 2, 0) for frame in video_frames
+    ]
+    video_frames = [
+        Image.fromarray((frame * 255).astype(np.uint8)) for frame in video_frames
+    ]
+    video_frames[0].save(
+        name,
+        save_all=True,
+        append_images=video_frames[1:],
+        duration=duration,
+        loop=0,
+        optimize=False,
+    )
+    return wandb.Video(name, fps=fps, format="gif", caption=caption)
+
+
+def wandb_image(image, caption=None):
+    image = image.numpy().transpose(1, 2, 0)
+    image = Image.fromarray((image * 255.0).astype(np.uint8))
+    return wandb.Image(image, caption=caption)
+
+
+def wandb_audio_spec(audio_spec, name="./temp_imgs/spec.png", caption=None):
+    audio_spec = audio_spec.numpy()
+    plt.figure()
+    s_db = librosa.amplitude_to_db(np.abs(audio_spec[0]), ref=np.max)
+    librosa.display.specshow(s_db, sr=16000, x_axis="time", y_axis="linear")
+    plt.colorbar()
+    plt.savefig(name)
+    plt.clf()
+    plt.close()
+    return wandb.Image(name, caption=caption)
+
+
+def wandb_audio_waveform(audio_waveform, name="./temp_imgs/waveform.png", caption=None):
+    audio_waveform = audio_waveform.numpy().squeeze()
+    plt.figure()
+    plt.plot(list(range(audio_waveform.shape[0])), audio_waveform)
+    plt.ylim([1600, 2400])
+    plt.savefig(name)
+    plt.clf()
+    plt.close()
+    return wandb.Image(name, caption=caption)

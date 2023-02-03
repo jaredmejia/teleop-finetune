@@ -10,6 +10,7 @@ from torch import utils
 CAM_FPS = 30
 NUM_IMG_FRAMES = 6
 WINDOW_DUR = 3
+AUDIO_FPS = 32000
 
 
 class TeleopCompletionDataset(utils.data.Dataset):
@@ -30,7 +31,7 @@ class TeleopCompletionDataset(utils.data.Dataset):
     def __len__(self):
         return len(self.img_paths)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx, target_img_path=None):
         data = {}
 
         # INPUT VIDEO
@@ -42,16 +43,24 @@ class TeleopCompletionDataset(utils.data.Dataset):
         ]
         data["video"] = video_data
 
-        # TARGET IMAGE / TARGET VALUE
-        curr_idx, target_idx = self.curr_target_idxs[idx]
-        target_img_idx = idx + target_idx - curr_idx
-        target_img_path = self.img_paths[target_img_idx][
-            -1
-        ]  # get last image from list of images
-        target_img = Image.open(target_img_path)
-        target_val = curr_idx / target_idx
-        data["image"] = target_img
-        data["target"] = target_val
+        if target_img_path is not None:
+            target_img = Image.open(target_img_path)
+            data["image"] = target_img
+        else:
+            assert (
+                self.curr_target_idxs is not None
+            ), "must provide curr_target_idxs for training"
+
+            # TARGET IMAGE / TARGET VALUE
+            curr_idx, target_idx = self.curr_target_idxs[idx]
+            target_img_idx = idx + target_idx - curr_idx
+            target_img_path = self.img_paths[target_img_idx][
+                -1
+            ]  # get last image from list of images
+            target_img = Image.open(target_img_path)
+            target_val = curr_idx / target_idx
+            data["image"] = target_img
+            data["target"] = target_val
 
         if self.include_audio:
             # AUDIO
@@ -69,17 +78,18 @@ class TeleopCompletionDataset(utils.data.Dataset):
             # ORIGINAL AUDIO
             avg_audio_data = np.mean(audio_data, axis=0)
             # pad avg audio data with the average value up to size (96000,) at the front of the array
-            if avg_audio_data.shape[0] < 96000:
+            if avg_audio_data.shape[0] < AUDIO_FPS * WINDOW_DUR:
                 avg_audio_data = np.concatenate(
                     (
                         np.full(
-                            (96000 - avg_audio_data.shape[0]), np.mean(avg_audio_data)
+                            (AUDIO_FPS * WINDOW_DUR - avg_audio_data.shape[0]),
+                            np.mean(avg_audio_data),
                         ),
                         avg_audio_data,
                     )
                 )
             else:
-                avg_audio_data = avg_audio_data[-96000:]
+                avg_audio_data = avg_audio_data[-AUDIO_FPS * WINDOW_DUR :]
 
             data["orig_audio"] = avg_audio_data
 
@@ -89,13 +99,12 @@ class TeleopCompletionDataset(utils.data.Dataset):
 
 
 def get_dataloaders(
-    dataset, traj_ids_idxs, collate_fn, batch_size=128, validation_split=0.2
+    dataset, traj_ids_idxs, collate_fn, batch_size=128, num_valid_trajs=20
 ):
-    split_traj_idx = int(np.floor((1 - validation_split) * len(traj_ids_idxs)))
-
-    split = traj_ids_idxs[split_traj_idx][1]
+    """Get train and validation dataloaders."""
+    split = traj_ids_idxs[-num_valid_trajs][1]
     print(
-        f"Splitting at {split_traj_idx}th traj / {len(traj_ids_idxs)} trajectories, {split}-th idx total\n"
+        f"Num train trajectories: {len(traj_ids_idxs[:-num_valid_trajs])}, Num valid trajectories: {len(traj_ids_idxs[-num_valid_trajs:])}\nvalid begins at {split}-th idx / {len(dataset)} total\n"
     )
 
     # build data loaders based on split
@@ -123,34 +132,23 @@ def get_teleop_data_targets(teleop_paths, teleop_dir, mode="train"):
     curr_target_idxs = []  # list of tuples (relative_idx, relative_target_idx)
     traj_ids_idxs = []  # list of tuples (traj_id, traj_start_idx)
     actions = {}  # dict of lists of actions for each trajectory
-    traj_ids = [] # list of tuples (traj_id, relative_idx))
+    traj_ids = []  # list of tuples (traj_id, relative_idx))
 
     num_frames_window = int(WINDOW_DUR * CAM_FPS)
     stride_len = num_frames_window // NUM_IMG_FRAMES
 
-    if mode == 'train':
-        # reording teleop paths for train/val split
-        # ensures that training set has 15 trajectories for each object
-        # ensures validation set has unseen 5 trajectories for each object
-        train_idxs = []
-        val_idxs = []
-        for i in range(0, 80, 20):
-            train_idxs.extend(range(i, i + 15))
-            val_idxs.extend(range(i + 15, i + 20))
+    # reording teleop paths for train/val split
+    # ensures that training set has 15 trajectories for each object
+    # ensures validation set has unseen 5 trajectories for each object
+    train_idxs = []
+    val_idxs = []
+    for i in range(0, 80, 20):
+        train_idxs.extend(range(i, i + 15))
+        val_idxs.extend(range(i + 15, i + 20))
 
-        train_teleop_paths = [teleop_paths[i] for i in train_idxs]
-        val_teleop_paths = [teleop_paths[i] for i in val_idxs]
-        teleop_paths = train_teleop_paths + val_teleop_paths
-
-    elif mode == 'test':
-        # teleop paths will consist of 20 trajectories (5 for each object)
-        test_idxs = []
-        for i in range(0, 80, 20):
-            test_idxs.extend(range(i, i+5))
-        teleop_paths = [teleop_paths[i] for i in test_idxs]
-
-    else:
-        NotImplementedError
+    train_teleop_paths = [teleop_paths[i] for i in train_idxs]
+    val_teleop_paths = [teleop_paths[i] for i in val_idxs]
+    teleop_paths = train_teleop_paths + val_teleop_paths
 
     global_idx = 0
     for path in teleop_paths:
@@ -163,7 +161,9 @@ def get_teleop_data_targets(teleop_paths, teleop_dir, mode="train"):
 
         if mode == "train":
             idxs = list(range(stride_len, len(traj_img_paths), stride_len))
-        else: # mode == "test"
+        else:  # mode == "test"
+            # knn requires all frames to be used
+            # actions must be known at each step for open loop control
             idxs = list(range(stride_len, len(traj_img_paths)))
 
         for i in range(len(idxs)):
@@ -193,7 +193,7 @@ def load_target_data(extract_dir, mode="train"):
     with open(traj_ids_idxs_path, "rb") as f:
         traj_ids_idxs = pickle.load(f)
 
-    if mode == 'test':
+    if mode == "test":
         actions_path = os.path.join(extract_dir, "actions.pkl")
         traj_ids_path = os.path.join(extract_dir, "traj_ids.pkl")
 
@@ -206,7 +206,7 @@ def load_target_data(extract_dir, mode="train"):
 
     else:
         return image_paths, curr_target_idxs, traj_ids_idxs
-    
+
 
 def main():
     # argparse
@@ -214,7 +214,7 @@ def main():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="./prep_data/3s_window/",
+        default="./prep_data/3s_window_train/",
         help="Directory to save the output",
     )
     parser.add_argument(
@@ -229,7 +229,13 @@ def main():
         default="/home/vdean/franka_demo/logs/jared_chopping_exps_v4/",
         help="Directory with teleop data",
     )
-    parser.add_argument("--mode", type=str, default="train", help="train or test")
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="train",
+        help="train or test",
+        choices=["train", "test"],
+    )
     args = parser.parse_args()
     output_dir = args.output_dir
     teleop_pickle = args.teleop_pickle
@@ -238,9 +244,13 @@ def main():
     with open(teleop_pickle, "rb") as f:
         teleop_paths = pickle.load(f)
 
-    image_paths, curr_target_idxs, traj_ids_idxs, actions, traj_ids = get_teleop_data_targets(
-        teleop_paths, teleop_dir, args.mode
-    )
+    (
+        image_paths,
+        curr_target_idxs,
+        traj_ids_idxs,
+        actions,
+        traj_ids,
+    ) = get_teleop_data_targets(teleop_paths, teleop_dir, args.mode)
     print(f"Total number of samples: {len(image_paths)}")
 
     if not os.path.exists(output_dir):

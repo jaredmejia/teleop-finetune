@@ -39,7 +39,7 @@ class AvidR3M(nn.Module):
 
         self.modality = modality
         self.disable_backbone_dropout = disable_backbone_dropout
-        
+
         self.frozen_backbone = frozen_backbone
         if self.frozen_backbone:
             self.freeze_backbone()
@@ -101,6 +101,8 @@ class AvidR3M(nn.Module):
             self.train()
 
     def forward(self, data):
+        data["image"] = data["image"] * 255.0
+
         if self.frozen_backbone:
             with torch.no_grad():
                 vid_aud_emb = self.avid_backbone(data)
@@ -117,3 +119,45 @@ class AvidR3M(nn.Module):
         pred = self.feat_fusion(cat_emb)
 
         return pred
+
+
+class AvidR3MAttention(nn.Module):
+    def __init__(
+        self,
+        avid_name,
+        avid_cfg_path,
+        avid_emb_dim=1024,
+        r3m_emb_dim=512,
+        mod_emb_size=128,
+        num_heads=8,
+        seq_size=6,
+        hidden_dim=512,
+        modality="audio-video",
+        num_outputs=1,
+    ):
+        super().__init__()
+
+        self.modality = modality
+
+        self.avid_backbone, self.r3m_backbone = self.model_prep(
+            avid_name, avid_cfg_path
+        )
+        self.avid_batchnorm = nn.BatchNorm1d(avid_emb_dim)
+
+        self.downsample_video = nn.Linear(512, mod_emb_size)
+        if self.modality == "audio-video":
+            self.downsample_audio = nn.Linear(512, mod_emb_size)
+
+        self.mha = nn.MultiHeadAttention(
+            avid_emb_dim * seq_size, num_heads, batch_first=True
+        )
+        self.feat_fusion = nn.Sequential(
+            nn.BatchNorm1d(avid_emb_dim * seq_size + r3m_emb_dim),
+            nn.Linear(avid_emb_dim * seq_size + r3m_emb_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, num_outputs),
+        )
+
+    # TODO: fill out forward pass
+    def forward(self, data):
+        pass
