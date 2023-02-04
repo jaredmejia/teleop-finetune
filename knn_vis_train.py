@@ -12,10 +12,10 @@ from PIL import Image, ImageDraw, ImageFont
 
 from finetune_utils import (
     multi_collate,
-    wandb_video,
-    wandb_image,
-    wandb_audio_spec,
-    wandb_audio_waveform,
+    write_video,
+    write_image,
+    write_audio_spec,
+    write_audio_waveform,
 )
 from teleop_prop_data import load_target_data, TeleopCompletionDataset
 
@@ -91,41 +91,50 @@ def log_matching_data(
         dist_str = f"{dist.item():.3f}"
 
         # log query data
-        log_dict["query/video"] = wandb_video(
-            q_data["video"], caption=f"Query Video, Sample {q_idx}"
+        log_dict["query/video"] = write_video(
+            q_data["video"], caption=f"Query Video, Sample {q_idx}", wandb_log=True
         )
-        log_dict["query/image"] = wandb_image(
-            q_data["image"], caption=f"Query Image, Sample {q_idx}"
+        log_dict["query/image"] = write_image(
+            q_data["image"], caption=f"Query Image, Sample {q_idx}", wandb_log=True
         )
         if include_audio:
-            log_dict["query/audio_spec"] = wandb_audio_spec(
-                q_data["audio"], caption=f"Query Audio Spec, Sample {q_idx}"
+            log_dict["query/audio_spec"] = write_audio_spec(
+                q_data["audio"],
+                caption=f"Query Audio Spec, Sample {q_idx}",
+                wandb_log=True,
             )
         if include_orig_audio:
-            log_dict["query/audio_waveform"] = wandb_audio_waveform(
-                q_data["orig_audio"], caption=f"Query Audio Waveform, Sample {q_idx}"
+            log_dict["query/audio_waveform"] = write_audio_waveform(
+                q_data["orig_audio"],
+                caption=f"Query Audio Waveform, Sample {q_idx}",
+                wandb_log=True,
             )
 
         # log knn data
-        log_dict["knn/video"] = wandb_video(
+        log_dict["knn/video"] = write_video(
             knn_data["video"],
             caption=f"KNN Video, Sample {knn_idx}, Dist: {dist_str}",
             name="./temp_imgs/sample_vid_knn.gif",
+            wandb_log=True,
         )
-        log_dict["knn/image"] = wandb_image(
-            knn_data["image"], caption=f"KNN Image, Sample {knn_idx}, Dist: {dist_str}"
+        log_dict["knn/image"] = write_image(
+            knn_data["image"],
+            caption=f"KNN Image, Sample {knn_idx}, Dist: {dist_str}",
+            wandb_log=True,
         )
         if include_audio:
-            log_dict["knn/audio_spec"] = wandb_audio_spec(
+            log_dict["knn/audio_spec"] = write_audio_spec(
                 knn_data["audio"],
                 caption=f"KNN Audio Spec, Sample {knn_idx}, Dist: {dist_str}",
                 name="./temp_imgs/spec_2.png",
+                wandb_log=True,
             )
         if include_orig_audio:
-            log_dict["knn/audio_waveform"] = wandb_audio_waveform(
+            log_dict["knn/audio_waveform"] = write_audio_waveform(
                 knn_data["orig_audio"],
                 caption=f"KNN Audio Waveform, Sample {knn_idx}, Dist: {dist_str}",
                 name="./temp_imgs/waveform_2.png",
+                wandb_log=True,
             )
 
         wandb.log(log_dict)

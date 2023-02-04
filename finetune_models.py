@@ -20,6 +20,7 @@ class AvidR3M(nn.Module):
         disable_backbone_dropout=True,
         modality="audio-video",
         batchnorm=False,
+        output_dim=1,
     ):
         super().__init__()
 
@@ -34,7 +35,7 @@ class AvidR3M(nn.Module):
         self.feat_fusion = nn.Sequential(
             nn.Linear(avid_emb_dim + r3m_emb_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, 1),
+            nn.Linear(hidden_dim, output_dim),
         )
 
         self.modality = modality
@@ -133,7 +134,7 @@ class AvidR3MAttention(nn.Module):
         seq_size=6,
         hidden_dim=512,
         modality="audio-video",
-        num_outputs=1,
+        output_dim=1,
     ):
         super().__init__()
 
@@ -155,7 +156,7 @@ class AvidR3MAttention(nn.Module):
             nn.BatchNorm1d(avid_emb_dim * seq_size + r3m_emb_dim),
             nn.Linear(avid_emb_dim * seq_size + r3m_emb_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, num_outputs),
+            nn.Linear(hidden_dim, output_dim),
         )
 
     # TODO: fill out forward pass

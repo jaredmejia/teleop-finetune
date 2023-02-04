@@ -120,11 +120,16 @@ def multi_collate(batch, device=None, include_audio=True, include_orig_audio=Fal
     return batched_data
 
 
-### WANDB ###
+### VISUALIZATION FUNCTIONS ###
 
 
-def wandb_video(
-    video, name="./temp_imgs/sample_vid.gif", fps=30, duration=500, caption=None
+def write_video(
+    video,
+    name="./temp_imgs/sample_vid.gif",
+    fps=30,
+    duration=500,
+    caption=None,
+    wandb_log=False,
 ):
     video_frames = [video[:, i, :, :] for i in range(video.shape[1])]
     video_frames = [
@@ -141,16 +146,24 @@ def wandb_video(
         loop=0,
         optimize=False,
     )
-    return wandb.Video(name, fps=fps, format="gif", caption=caption)
+
+    if wandb_log:
+        return wandb.Video(name, fps=fps, format="gif", caption=caption)
 
 
-def wandb_image(image, caption=None):
+def write_image(image, caption=None, name=None, wandb_log=False):
     image = image.numpy().transpose(1, 2, 0)
     image = Image.fromarray((image * 255.0).astype(np.uint8))
-    return wandb.Image(image, caption=caption)
+
+    if wandb_log:
+        return wandb.Image(image, caption=caption)
+    else:
+        image.save(name)
 
 
-def wandb_audio_spec(audio_spec, name="./temp_imgs/spec.png", caption=None):
+def write_audio_spec(
+    audio_spec, name="./temp_imgs/spec.png", caption=None, wandb_log=False
+):
     audio_spec = audio_spec.numpy()
     plt.figure()
     s_db = librosa.amplitude_to_db(np.abs(audio_spec[0]), ref=np.max)
@@ -159,15 +172,28 @@ def wandb_audio_spec(audio_spec, name="./temp_imgs/spec.png", caption=None):
     plt.savefig(name)
     plt.clf()
     plt.close()
-    return wandb.Image(name, caption=caption)
+
+    if wandb_log:
+        return wandb.Image(name, caption=caption)
 
 
-def wandb_audio_waveform(audio_waveform, name="./temp_imgs/waveform.png", caption=None):
+def write_audio_waveform(
+    audio_waveform,
+    x_vals=None,
+    name="./temp_imgs/waveform.png",
+    caption=None,
+    wandb_log=False,
+):
     audio_waveform = audio_waveform.numpy().squeeze()
+    if x_vals is None:
+        x_vals = list(range(audio_waveform.shape[0]))
+
     plt.figure()
-    plt.plot(list(range(audio_waveform.shape[0])), audio_waveform)
+    plt.plot(x_vals, audio_waveform)
     plt.ylim([1600, 2400])
     plt.savefig(name)
     plt.clf()
     plt.close()
-    return wandb.Image(name, caption=caption)
+
+    if wandb_log:
+        return wandb.Image(name, caption=caption)

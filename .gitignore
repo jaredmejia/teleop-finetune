@@ -2,6 +2,7 @@ temp_imgs/
 trained_models/
 prep_data/
 wandb/
+*.ipynb
 
 
 # Byte-compiled / optimized / DLL files
