@@ -1,0 +1,29 @@
+model_name: "action-msa"
+save_path: "/home/vdean/jared_contact_mic/teleop-finetune/trained_models"
+
+dataset:
+  name: "teleop-action"
+
+  video_dur: 3
+  video_rate: 30
+  video_transform: "SequentialVisualTransform"
+  video_transform_args:
+    model_name: "resnet18"
+
+  audio_dur: 3.
+  audio_rate: 16000
+  audio_transform: "SpecEncoder"
+  audio_transform_args:
+    orig_sr: 32000
+    out_sr: 16000
+    norm_audio: false
+    norm_freq: false
+
+model:
+  arch: "MultiSensoryAttention"
+  checkpoint: "/home/vdean/jared_contact_mic/teleop-finetune/trained_models/best_model_action-msa.pth"
+  args:
+    backbone_name: "resnet18"
+    embed_dim: 128
+    seq_length: 6
+    output_dim: 7

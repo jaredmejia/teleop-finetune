@@ -1,14 +1,14 @@
-from sklearn.neighbors import KDTree
 import argparse
-import joblib
 import os
 import pickle
 import sys
+from functools import partial
+
+import joblib
 import torch
 import tqdm
 import yaml
-
-from functools import partial
+from sklearn.neighbors import KDTree
 
 from finetune_utils import multi_collate
 from teleop_prop_data import TeleopCompletionDataset, load_target_data

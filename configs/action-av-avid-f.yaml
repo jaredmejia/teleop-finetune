@@ -1,8 +1,8 @@
-model_name: "v-avid-p-c-b-a-2"
+model_name: "action-av-avid-f"
 save_path: "/home/vdean/jared_contact_mic/teleop-finetune/trained_models"
 
 dataset:
-  name: "teleop-completion"
+  name: "teleop-action"
 
   video_dur: 3 # 0.5
   video_rate: 30 # 16.
@@ -15,7 +15,7 @@ dataset:
   audio_type: "glove"
   audio_dur: 3. # 2.
   audio_rate: 16000 # 11025
-  audio_transform: "AudioPrep"
+  audio_transform: "SpecEncoder"
   audio_transform_args:
     mono: true
     duration: 3. # 2.
@@ -30,15 +30,15 @@ dataset:
 
 model:
   arch: "AvidR3M"
-  checkpoint: "/home/vdean/jared_contact_mic/teleop-finetune/trained_models/best_model_v-avid-p-c-b-a-2.pth"
+  checkpoint: "/home/vdean/jared_contact_mic/teleop-finetune/trained_models/best_model_action-av-avid-f.pth"
   args:
-    avid_name: "avid-no-ft-video"
-    avid_cfg_path: "/home/vdean/jared_contact_mic/avid-glove/config/gloveaudio/avcat-avid-ft-video.yaml"
+    avid_name: "avid-no-ft"
+    avid_cfg_path: "/home/vdean/jared_contact_mic/avid-glove/config/gloveaudio/avcat-avid-ft-jointloss.yaml"
     frozen_backbone: false
-    avid_emb_dim: 512
+    avid_emb_dim: 1024
     r3m_emb_dim: 512
     hidden_dim: 512
     disable_backbone_dropout: true
-    modality: "video"
+    modality: "audio-video"
     batchnorm: true
-    output_dim: 1
+    output_dim: 7

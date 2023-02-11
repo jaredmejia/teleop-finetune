@@ -1,22 +1,23 @@
 import argparse
-import cv2
 import glob
-import matplotlib.pyplot as plt
-import numpy as np
 import os
-import pandas as pd
 import pickle
 import sys
+
+import cv2
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import torch
 import yaml
 
-from teleop_prop_data import load_target_data, TeleopCompletionDataset
 from finetune_utils import (
     write_audio_spec,
     write_audio_waveform,
     write_image,
     write_video,
 )
+from teleop_prop_data import TeleopCompletionDataset, load_target_data
 
 sys.path.insert(1, "/home/vdean/franka_learning_jared/")
 from pretraining import load_transforms
@@ -98,7 +99,7 @@ def write_query_knn_data(
     transforms,
     include_audio=False,
     include_orig_audio=False,
-    exp_num=None
+    exp_num=None,
 ):
     """Writes the query and knn data to a directory"""
 
@@ -184,7 +185,7 @@ def write_query_knn_data(
                 )
                 write_audio_waveform(query_data["orig_audio"], name=waveform_name)
 
-    exp_dist_data = {'EXP_NUM': exp_num, 'step_vals': step_vals, 'knn_dists': knn_dists}
+    exp_dist_data = {"EXP_NUM": exp_num, "step_vals": step_vals, "knn_dists": knn_dists}
     return exp_dist_data
 
 
@@ -195,19 +196,41 @@ def plot_dist_data(exp_dist_data_list, success_idxs, data_vis_dir, model_name):
     failure_data = []
     failure_steps = []
     plt.figure()
-    
+
     for exp_dist_data in exp_dist_data_list:
-        idx = exp_dist_data['EXP_NUM']
+        idx = exp_dist_data["EXP_NUM"]
         if idx in success_idxs:
-            success_data.extend(exp_dist_data['knn_dists'])
-            success_steps.extend(exp_dist_data['step_vals'])
-            plt.plot(np.array(exp_dist_data['step_vals']).astype(float), exp_dist_data['knn_dists'], '-o', alpha=0.2, color='tab:blue')
-            plt.plot(np.array(exp_dist_data['step_vals']).astype(float)[-1:], exp_dist_data['knn_dists'][-1:], 'x', color='tab:blue')
+            success_data.extend(exp_dist_data["knn_dists"])
+            success_steps.extend(exp_dist_data["step_vals"])
+            plt.plot(
+                np.array(exp_dist_data["step_vals"]).astype(float),
+                exp_dist_data["knn_dists"],
+                "-o",
+                alpha=0.2,
+                color="tab:blue",
+            )
+            plt.plot(
+                np.array(exp_dist_data["step_vals"]).astype(float)[-1:],
+                exp_dist_data["knn_dists"][-1:],
+                "x",
+                color="tab:blue",
+            )
         else:
-            failure_data.extend(exp_dist_data['knn_dists'])
-            failure_steps.extend(exp_dist_data['step_vals'])
-            plt.plot(np.array(exp_dist_data['step_vals']).astype(float), exp_dist_data['knn_dists'], '-o', alpha=0.2, color='tab:orange')
-            plt.plot(np.array(exp_dist_data['step_vals']).astype(float)[-1:], exp_dist_data['knn_dists'][-1:], 'x', color='tab:orange')
+            failure_data.extend(exp_dist_data["knn_dists"])
+            failure_steps.extend(exp_dist_data["step_vals"])
+            plt.plot(
+                np.array(exp_dist_data["step_vals"]).astype(float),
+                exp_dist_data["knn_dists"],
+                "-o",
+                alpha=0.2,
+                color="tab:orange",
+            )
+            plt.plot(
+                np.array(exp_dist_data["step_vals"]).astype(float)[-1:],
+                exp_dist_data["knn_dists"][-1:],
+                "x",
+                color="tab:orange",
+            )
 
     success_steps = np.array(success_steps).astype(float)
     success_data = np.array(success_data).astype(float)
@@ -221,8 +244,20 @@ def plot_dist_data(exp_dist_data_list, success_idxs, data_vis_dir, model_name):
     # plot fit of knn distance per step
     success_polyline = np.linspace(0, np.amax(success_steps), 100)
     failure_polyline = np.linspace(0, np.amax(failure_steps), 100)
-    plt.plot(success_polyline, success_poly_fit(success_polyline), label='success', linewidth=3, color='tab:blue')
-    plt.plot(failure_polyline, failure_poly_fit(failure_polyline), label='failure', linewidth=3, color='tab:orange')
+    plt.plot(
+        success_polyline,
+        success_poly_fit(success_polyline),
+        label="success",
+        linewidth=3,
+        color="tab:blue",
+    )
+    plt.plot(
+        failure_polyline,
+        failure_poly_fit(failure_polyline),
+        label="failure",
+        linewidth=3,
+        color="tab:orange",
+    )
     plt.xlabel("step")
     plt.ylabel("knn distance")
     plt.ylim(15, 35)
@@ -305,12 +340,14 @@ def main():
             os.makedirs(exp_vis_dir)
 
         # creating video of full eval traj
-        out_vid_path = os.path.join(exp_vis_dir, f"eval_vid_{str(EXP_NUM).zfill(2)}.mp4")
-        create_video(img_dir=img_dir, out_vid_path=out_vid_path, exp_dir_id=exp_dir_id)
+        out_vid_path = os.path.join(
+            exp_vis_dir, f"eval_vid_{str(EXP_NUM).zfill(2)}.mp4"
+        )
+        # create_video(img_dir=img_dir, out_vid_path=out_vid_path, exp_dir_id=exp_dir_id)
 
         # creating waveform of audio
         out_waveform_path = os.path.join(exp_vis_dir, f"waveform_{EXP_NUM}.png")
-        write_txt_waveform(txt_audio_file, out_waveform_path=out_waveform_path)
+        # write_txt_waveform(txt_audio_file, out_waveform_path=out_waveform_path)
 
         # query log dir
         query_log_dir = os.path.join(
@@ -331,7 +368,7 @@ def main():
             transforms=transforms,
             include_audio=include_audio,
             include_orig_audio=include_orig_audio,
-            exp_num=EXP_NUM
+            exp_num=EXP_NUM,
         )
         exp_dist_data_list.append(exp_dist_data)
 
@@ -339,12 +376,12 @@ def main():
 
     print(f"Plotting dist data...")
     if model_name == "av-avid-p-shf-c-b-a-2":
-        success_idxs = [4, 5, 6, 7, 8, 9, 10]
+        success_idxs = [4, 5, 6, 11, 12, 14, 18]
     else:
         success_idxs = [6, 7, 8, 10, 11, 12, 13, 15, 17, 19]
     plot_dist_data(exp_dist_data_list, success_idxs, data_vis_dir, model_name)
 
-    print(f'Finished.')
+    print(f"Finished.")
 
 
 if __name__ == "__main__":

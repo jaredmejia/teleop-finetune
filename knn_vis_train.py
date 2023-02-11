@@ -1,23 +1,23 @@
 import argparse
-import joblib
-import numpy as np
 import os
 import pickle
 import sys
-import torch
-import wandb
-import yaml
 
+import joblib
+import numpy as np
+import torch
+import yaml
 from PIL import Image, ImageDraw, ImageFont
 
+import wandb
 from finetune_utils import (
     multi_collate,
-    write_video,
-    write_image,
     write_audio_spec,
     write_audio_waveform,
+    write_image,
+    write_video,
 )
-from teleop_prop_data import load_target_data, TeleopCompletionDataset
+from teleop_prop_data import TeleopCompletionDataset, load_target_data
 
 sys.path.insert(1, "/home/vdean/franka_learning_jared/")
 from pretraining import load_encoder, load_transforms

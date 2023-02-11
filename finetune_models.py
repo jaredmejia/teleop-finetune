@@ -1,8 +1,10 @@
-import torch
 import sys
-import yaml
 
+import torch
+import yaml
+from einops import rearrange
 from torch import nn
+from torchvision import models
 
 sys.path.insert(1, "/home/vdean/franka_learning_jared")
 from pretraining import load_encoder
@@ -131,7 +133,7 @@ class AvidR3MAttention(nn.Module):
         r3m_emb_dim=512,
         mod_emb_size=128,
         num_heads=8,
-        seq_size=6,
+        seq_length=6,
         hidden_dim=512,
         modality="audio-video",
         output_dim=1,
@@ -150,11 +152,11 @@ class AvidR3MAttention(nn.Module):
             self.downsample_audio = nn.Linear(512, mod_emb_size)
 
         self.mha = nn.MultiHeadAttention(
-            avid_emb_dim * seq_size, num_heads, batch_first=True
+            avid_emb_dim * seq_length, num_heads, batch_first=True
         )
         self.feat_fusion = nn.Sequential(
-            nn.BatchNorm1d(avid_emb_dim * seq_size + r3m_emb_dim),
-            nn.Linear(avid_emb_dim * seq_size + r3m_emb_dim, hidden_dim),
+            nn.BatchNorm1d(avid_emb_dim * seq_length + r3m_emb_dim),
+            nn.Linear(avid_emb_dim * seq_length + r3m_emb_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, output_dim),
         )
@@ -162,3 +164,129 @@ class AvidR3MAttention(nn.Module):
     # TODO: fill out forward pass
     def forward(self, data):
         pass
+
+
+class SequentialEncoder(nn.Module):
+    def __init__(
+        self, modality, model_name="resnet18", seq_length=6, downsample_size=128
+    ):
+        super().__init__()
+        self.modality = modality
+        self.seq_length = seq_length
+        self.model_name = model_name
+        self.downsample_size = downsample_size
+        self.encoder = load_encoder(
+            model_name, {"pretrained": False, "modality": modality}
+        )
+        self.downsampler = nn.Linear(512, downsample_size)
+
+    def forward(self, data):
+        """
+        Args:
+            data (torch.Tensor): tensor of shape (batch_size, c, h, seq_length * w)
+        Returns:
+            (torch.Tensor): tensor of shape (batch_size, seq_length, downsample_size)
+        """
+        data = rearrange(data, "b s c h w -> (b s) c h w")
+        emb = self.encoder(data)
+        emb = self.downsampler(emb)
+        emb = rearrange(emb, "(b s) d -> b s d", s=self.seq_length)
+        return emb
+
+
+class MultiSensoryAttention(nn.Module):
+    def __init__(
+        self,
+        backbone_name="resnet18",
+        embed_dim=128,
+        seq_length=6,
+        output_dim=7,
+        audio_encoder=None,
+    ):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.seq_length = seq_length
+        self.output_dim = output_dim
+
+        self.visual_encoder = SequentialEncoder(
+            "video",
+            model_name=backbone_name,
+            seq_length=seq_length,
+            downsample_size=embed_dim,
+        )
+
+        # TODO: add option for pretrained audio encoder (e.g. from AVID)
+        self.audio_encoder = SequentialEncoder(
+            "audio",
+            model_name=backbone_name,
+            seq_length=seq_length,
+            downsample_size=embed_dim,
+        )
+
+        self.mha = nn.MultiheadAttention(embed_dim, num_heads=8, batch_first=True)
+
+        self.mlp_inp_dim = 2 * embed_dim * seq_length
+        self.mlp = nn.Sequential(
+            nn.Linear(self.mlp_inp_dim, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, output_dim),
+        )
+
+    def set_train(self):
+        self.train()
+
+    def forward(self, data, return_attn=False):
+        """
+        Args:
+            data (dict): dictionary containing video and audio data
+        Returns:
+            (torch.Tensor): tensor of shape (batch_size, output_dim)
+        """
+        video = data["video"]  # (batch_size, .5 * seq_length, 3, h, w)
+        audio = data["audio"]  # (batch_size, 1, h, .5 * seq_length * w)
+        audio = rearrange(
+            audio, "b c h (s w) -> b s c h w", s=self.seq_length
+        )  # (batch_size, .5 * seq_length, 3, h, w)
+
+        video_emb = self.visual_encoder(
+            video
+        )  # (batch_size, .5 * seq_length, embed_dim)
+        audio_emb = self.audio_encoder(
+            audio
+        )  # (batch_size, .5 * seq_length, embed_dim)
+
+        mha_inp = torch.cat(
+            (video_emb, audio_emb), dim=1
+        )  # (batch_size, seq_length, embed_dim)
+        mha_out, attn_weights = self.mha(
+            mha_inp, mha_inp, mha_inp
+        )  # (batch_size, seq_length, embed_dim)
+
+        # residual connection
+        mlp_inp = mha_inp + mha_out  # (batch_size, seq_length, embed_dim)
+        mlp_inp = rearrange(
+            mlp_inp, "b s d -> b (s d)"
+        )  # (batch_eize, seq_length * embed_dim)
+        out = self.mlp(mlp_inp)  # (batch_size, output_dim)
+
+        if return_attn:
+            return out, attn_weights
+        else:
+            return out
+
+
+def main():
+    data = {
+        "video": torch.randn(2, 6, 3, 224, 224),
+        "audio": torch.randn(2, 6, 1, 224, 224),
+    }
+
+    model = MultiSensoryAttention()
+    out = model(data)
+    print(out.shape)
+
+
+if __name__ == "__main__":
+    main()

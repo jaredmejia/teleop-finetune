@@ -1,16 +1,14 @@
+import sys
+
 import librosa
 import librosa.display
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import sys
-import yaml
-import wandb
-
-from torchvision import transforms as T
 from PIL import Image
+from torchvision import transforms as T
 
-from finetune_preprocessing import SpecEncoder
+import wandb
 
 sys.path.insert(1, "/home/vdean/franka_learning_jared")
 from pretraining import load_transforms
@@ -41,30 +39,11 @@ def set_seeds(seed):
     torch.backends.cudnn.benchmark = False
 
 
-def backbone_transforms(avid_name, avid_cfg_path, audio_transform="AudioPrep"):
-    avid_cfg = yaml.safe_load(open(avid_cfg_path))
-    avid_transforms = load_transforms(avid_name, avid_cfg)
-    r3m_transforms = load_transforms("r3m", None)
-
-    if audio_transform == "SpecEncoder":
-        spec_encoder = SpecEncoder()
-        print("Using SpecEncoder for audio preprocessing")
+def backbone_transforms(model_name, cfg):
+    transforms = load_transforms(model_name, cfg)
 
     def backbone_transforms_f(data, inference=False, device="cuda:0"):
-        if audio_transform == "AudioPrep":
-            data_t = avid_transforms(data)  # video / audio
-        elif audio_transform == "SpecEncoder":
-            data_t = {}
-
-            # video
-            video_input = {"video": data["video"]}
-            data_t["video"] = avid_transforms(data)["video"]
-
-            # audio
-            audio_input = data["audio"]
-            data_t["audio"] = spec_encoder(audio_input)
-
-        data_t["image"] = r3m_transforms(data)["image"]
+        data_t = transforms(data)
 
         for data_type in data.keys():
             if data_type not in data_t.keys():
@@ -80,7 +59,9 @@ def backbone_transforms(avid_name, avid_cfg_path, audio_transform="AudioPrep"):
     return backbone_transforms_f
 
 
-def multi_collate(batch, device=None, include_audio=True, include_orig_audio=False):
+def multi_collate(
+    batch, device=None, include_image=True, include_audio=True, include_orig_audio=False
+):
     video_batch, img_batch, audio_batch, target_batch, orig_audio_batch = (
         [],
         [],
@@ -90,8 +71,10 @@ def multi_collate(batch, device=None, include_audio=True, include_orig_audio=Fal
     )
     for data in batch:
         video_batch.append(data["video"])
-        img_batch.append(data["image"])
         target_batch.append(data["target"])
+
+        if include_image:
+            img_batch.append(data["image"])
 
         if include_audio:
             audio_batch.append(data["audio"])
@@ -103,11 +86,12 @@ def multi_collate(batch, device=None, include_audio=True, include_orig_audio=Fal
     video_batch = torch.stack(video_batch, dim=0).to(device)
     batched_data["video"] = video_batch
 
-    img_batch = torch.stack(img_batch, dim=0).to(device)
-    batched_data["image"] = img_batch
-
     target_batch = torch.stack(target_batch, dim=0).to(device)
     batched_data["target"] = target_batch
+
+    if include_image:
+        img_batch = torch.stack(img_batch, dim=0).to(device)
+        batched_data["image"] = img_batch
 
     if include_audio:
         audio_batch = torch.stack(audio_batch, dim=0).to(device)

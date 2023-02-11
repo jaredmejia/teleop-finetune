@@ -1,10 +1,9 @@
 import argparse
-import numpy as np
 import os
 import pickle
 
+import numpy as np
 import PIL.Image as Image
-
 from torch import utils
 
 CAM_FPS = 30
@@ -61,6 +60,92 @@ class TeleopCompletionDataset(utils.data.Dataset):
             target_val = curr_idx / target_idx
             data["image"] = target_img
             data["target"] = target_val
+
+        if self.include_audio:
+            # AUDIO
+            txt_list = []
+            for i, img_path in enumerate(self.img_paths[idx]):
+                txt_path = f"{img_path[:-4]}txt"
+                txt_arr = np.loadtxt(txt_path)
+                txt_arr = txt_arr.T
+                txt_list.append(txt_arr)
+
+            audio_data = np.concatenate(txt_list, axis=1)
+            data["audio"] = audio_data
+
+        if self.include_orig_audio:
+            # ORIGINAL AUDIO
+            avg_audio_data = np.mean(audio_data, axis=0)
+            # pad avg audio data with the average value up to size (96000,) at the front of the array
+            if avg_audio_data.shape[0] < AUDIO_FPS * WINDOW_DUR:
+                avg_audio_data = np.concatenate(
+                    (
+                        np.full(
+                            (AUDIO_FPS * WINDOW_DUR - avg_audio_data.shape[0]),
+                            np.mean(avg_audio_data),
+                        ),
+                        avg_audio_data,
+                    )
+                )
+            else:
+                avg_audio_data = avg_audio_data[-AUDIO_FPS * WINDOW_DUR :]
+
+            data["orig_audio"] = avg_audio_data
+
+        data_t = self.transforms(data)
+
+        return data_t
+
+
+class TeleopActionDataset(utils.data.Dataset):
+    def __init__(
+        self,
+        img_paths,
+        curr_target_idxs,
+        traj_ids,
+        actions,
+        transforms,
+        include_image=True,
+        include_audio=False,
+        include_orig_audio=False,
+    ):
+        self.img_paths = img_paths
+        self.curr_target_idxs = curr_target_idxs
+        self.traj_ids = traj_ids
+        self.actions = actions
+        self.transforms = transforms
+        self.include_image = include_image
+        self.include_audio = include_audio
+        self.include_orig_audio = include_orig_audio
+
+    def __len__(self):
+        return len(self.img_paths)
+
+    def __getitem__(self, idx):
+        data = {}
+
+        # INPUT VIDEO
+        video_data = [
+            Image.open(img_path)
+            for img_path in self.img_paths[idx][
+                :: WINDOW_DUR * CAM_FPS // NUM_IMG_FRAMES
+            ]
+        ]
+        data["video"] = video_data
+
+        # TARGET ACTION
+        curr_traj_id, curr_idx = self.traj_ids[idx]
+        data["target"] = self.actions[curr_traj_id][curr_idx].astype(np.float32)
+
+        if self.include_image:
+            # GOAL IMAGE
+            curr_idx, target_idx = self.curr_target_idxs[idx]
+            target_img_idx = idx + target_idx - curr_idx
+            target_img_path = self.img_paths[target_img_idx][
+                -1
+            ]  # get last image from list of images
+            target_img = Image.open(target_img_path)
+            data["image"] = target_img
 
         if self.include_audio:
             # AUDIO
@@ -182,30 +267,24 @@ def get_teleop_data_targets(teleop_paths, teleop_dir, mode="train"):
     return img_paths, curr_target_idxs, traj_ids_idxs, actions, traj_ids
 
 
-def load_target_data(extract_dir, mode="train"):
+def load_target_data(extract_dir):
     curr_target_idxs_path = os.path.join(extract_dir, "curr_target_idxs.pkl")
     img_paths_path = os.path.join(extract_dir, "image_paths.pkl")
     traj_ids_idxs_path = os.path.join(extract_dir, "traj_ids_idxs.pkl")
+    actions_path = os.path.join(extract_dir, "actions.pkl")
+    traj_ids_path = os.path.join(extract_dir, "traj_ids.pkl")
     with open(curr_target_idxs_path, "rb") as f:
         curr_target_idxs = pickle.load(f)
     with open(img_paths_path, "rb") as f:
         image_paths = pickle.load(f)
     with open(traj_ids_idxs_path, "rb") as f:
         traj_ids_idxs = pickle.load(f)
+    with open(actions_path, "rb") as f:
+        actions = pickle.load(f)
+    with open(traj_ids_path, "rb") as f:
+        traj_ids = pickle.load(f)
 
-    if mode == "test":
-        actions_path = os.path.join(extract_dir, "actions.pkl")
-        traj_ids_path = os.path.join(extract_dir, "traj_ids.pkl")
-
-        with open(actions_path, "rb") as f:
-            actions = pickle.load(f)
-        with open(traj_ids_path, "rb") as f:
-            traj_ids = pickle.load(f)
-
-        return image_paths, curr_target_idxs, traj_ids_idxs, actions, traj_ids
-
-    else:
-        return image_paths, curr_target_idxs, traj_ids_idxs
+    return image_paths, curr_target_idxs, traj_ids_idxs, actions, traj_ids
 
 
 def main():

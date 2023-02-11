@@ -107,6 +107,7 @@ plotly @ file:///home/conda/feedstock_root/build_artifacts/plotly_1667059769663/
 pluggy @ file:///home/conda/feedstock_root/build_artifacts/pluggy_1667232663820/work
 -e git+ssh://git@github.com/facebookresearch/fairo@6d2dc81bb4f0ffb527546a78021e3c9419273e04#egg=polymetis&subdirectory=polymetis/polymetis
 pooch==1.6.0
+pre-commit==3.0.4
 proglog==0.1.10
 promise==2.3
 prompt-toolkit @ file:///home/conda/feedstock_root/build_artifacts/prompt-toolkit_1667565496306/work

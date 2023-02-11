@@ -1,8 +1,8 @@
-model_name: "v-avid-p-c-b-a-2"
+model_name: "action-v-avid"
 save_path: "/home/vdean/jared_contact_mic/teleop-finetune/trained_models"
 
 dataset:
-  name: "teleop-completion"
+  name: "teleop-action"
 
   video_dur: 3 # 0.5
   video_rate: 30 # 16.
@@ -30,7 +30,7 @@ dataset:
 
 model:
   arch: "AvidR3M"
-  checkpoint: "/home/vdean/jared_contact_mic/teleop-finetune/trained_models/best_model_v-avid-p-c-b-a-2.pth"
+  checkpoint: "/home/vdean/jared_contact_mic/teleop-finetune/trained_models/best_model_action-v-avid.pth"
   args:
     avid_name: "avid-no-ft-video"
     avid_cfg_path: "/home/vdean/jared_contact_mic/avid-glove/config/gloveaudio/avcat-avid-ft-video.yaml"
@@ -41,4 +41,4 @@ model:
     disable_backbone_dropout: true
     modality: "video"
     batchnorm: true
-    output_dim: 1
+    output_dim: 7
