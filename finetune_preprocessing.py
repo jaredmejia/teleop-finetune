@@ -27,16 +27,16 @@ class SpecEncoder:
         self.num_stack = num_stack
         self.norm_audio = norm_audio
         self.norm_freq = norm_freq
-        self.sr = out_sr
+        self.out_sr = out_sr
         self.n_mels = 64
         self.mel = torchaudio.transforms.MelSpectrogram(
-            sample_rate=self.sr,
-            n_fft=int(self.sr * 0.025) + 1,
-            hop_length=int(self.sr * 0.01),
+            sample_rate=self.out_sr,
+            n_fft=int(self.out_sr * 0.025) + 1,
+            hop_length=int(self.out_sr * 0.01),
             n_mels=self.n_mels,
         )
         self.audio_resampler = torchaudio.transforms.Resample(
-            orig_freq=orig_sr, new_freq=self.sr, dtype=torch.float64
+            orig_freq=orig_sr, new_freq=self.out_sr, dtype=torch.float64
         )
 
     def __call__(self, audio_arr):
@@ -47,9 +47,9 @@ class SpecEncoder:
             log_spec (torch.Tensor): (1, 64, 100)
         """
         waveform = self.standardize_audio(audio_arr)
-        EPS = 1e-8
+        eps = 1e-8
         spec = self.mel(waveform.float())
-        log_spec = torch.log(spec + EPS)
+        log_spec = torch.log(spec + eps)
 
         assert log_spec.size(-2) == 64
 
@@ -72,18 +72,18 @@ class SpecEncoder:
         waveform = self.audio_resampler(waveform)
 
         # if smaller than 3 second window, pad with averge
-        if waveform.shape[0] < WINDOW_DUR * self.sr:
+        if waveform.shape[0] < WINDOW_DUR * self.out_sr:
             waveform = torch.cat(
                 (
                     torch.zeros(
-                        (WINDOW_DUR * self.sr - waveform.shape[0],),
+                        (WINDOW_DUR * self.out_sr - waveform.shape[0],),
                         dtype=waveform.dtype,
                     ),
                     waveform,
                 )
             )
         else:
-            waveform = waveform[-WINDOW_DUR * self.sr :]
+            waveform = waveform[-WINDOW_DUR * self.out_sr :]
 
         return waveform
 
@@ -91,21 +91,29 @@ class SpecEncoder:
 class SequentialVisualTransform(object):
     def __init__(self, seq_length=6):
         self.seq_length = seq_length
-        self.transforms = [T.Resize((140, 105)), T.ToTensor()]
+        self.resize = T.Resize(size=(140, 105))
+        self.to_tensor = T.ToTensor()
 
     def __call__(self, data, train=True):
         """Data is a list of 6 images"""
-        if train:
-            # same random crop for all images
-            i, j, h, w = T.RandomCrop.get_params(data[0], (128, 96))
-            self.transforms.insert(1, T.Lambda(lambda img: TF.crop(img, i, j, h, w)))
-
-        transforms = T.Compose(self.transforms)
-
         # left padding with first image
         if len(data) < self.seq_length:
             data = [data[0]] * (self.seq_length - len(data)) + data
-        data = [transforms(img) for img in data]
+
+        # resize
+        data = [self.resize(img) for img in data]
+
+        if train:
+            # same random crop for all images
+            i, j, h, w = T.RandomCrop.get_params(data[0], (128, 96))
+            crop = T.Lambda(lambda img: TF.crop(img, i, j, h, w))
+            data = [crop(img) for img in data]
+        else:
+            # center crop
+            data = [TF.center_crop(img, (128, 96)) for img in data]
+
+        # to tensor
+        data = [self.to_tensor(img) for img in data]
 
         return torch.stack(data, dim=0)
 
@@ -123,10 +131,7 @@ def plot_spectrogram(spec, title=None, ylabel="freq_bin", aspect="auto", xmax=No
 
 
 def plot_specgram(waveform, sample_rate, title="Spectrogram", xlim=None):
-    waveform = waveform
-
     num_channels, num_frames = waveform.shape
-    time_axis = torch.arange(0, num_frames) / sample_rate
 
     figure, axes = plt.subplots(num_channels, 1)
     if num_channels == 1:

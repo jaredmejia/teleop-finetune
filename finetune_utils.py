@@ -16,7 +16,6 @@ from pretraining import load_transforms
 # define __all__ for all functions and classes in this file
 __all__ = [
     "set_seeds",
-    "model_prep",
     "backbone_transforms",
     "multi_collate",
     "invNormalize",
@@ -46,11 +45,11 @@ def backbone_transforms(model_name, cfg):
         data_t = transforms(data)
 
         for data_type in data.keys():
-            if data_type not in data_t.keys():
+            if data_type not in data_t:
                 data_t[data_type] = torch.tensor(data[data_type])
 
         if inference:
-            for data_type in data_t.keys():
+            for data_type in data_t:
                 if data_type != "target":
                     data_t[data_type] = data_t[data_type].unsqueeze(0).to(device)
 
@@ -109,16 +108,25 @@ def multi_collate(
 
 def write_video(
     video,
+    model_arch="AvidR3M",
     name="./temp_imgs/sample_vid.gif",
     fps=30,
     duration=500,
     caption=None,
     wandb_log=False,
 ):
-    video_frames = [video[:, i, :, :] for i in range(video.shape[1])]
-    video_frames = [
-        invNormalize(frame).numpy().transpose(1, 2, 0) for frame in video_frames
-    ]
+    if model_arch == "MultiSensoryAttention":
+        video_frames = [
+            video[i, :, :, :].numpy().transpose(1, 2, 0) for i in range(video.shape[0])
+        ]
+    else:
+        video_frames = [video[:, i, :, :] for i in range(video.shape[1])]
+
+        # unnormalize video frames and convert to numpy
+        video_frames = [
+            invNormalize(frame).numpy().transpose(1, 2, 0) for frame in video_frames
+        ]
+
     video_frames = [
         Image.fromarray((frame * 255).astype(np.uint8)) for frame in video_frames
     ]
@@ -137,7 +145,7 @@ def write_video(
 
 def write_image(image, caption=None, name=None, wandb_log=False):
     image = image.numpy().transpose(1, 2, 0)
-    image = Image.fromarray((image * 255.0).astype(np.uint8))
+    image = Image.fromarray((image).astype(np.uint8))
 
     if wandb_log:
         return wandb.Image(image, caption=caption)

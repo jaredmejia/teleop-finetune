@@ -1,4 +1,4 @@
-model_name: "action-msa"
+model_name: "action-msa-pe_l"
 save_path: "/home/vdean/jared_contact_mic/teleop-finetune/trained_models"
 
 dataset:
@@ -21,7 +21,7 @@ dataset:
 
 model:
   arch: "MultiSensoryAttention"
-  checkpoint: "/home/vdean/jared_contact_mic/teleop-finetune/trained_models/best_model_action-msa.pth"
+  checkpoint: "/home/vdean/jared_contact_mic/teleop-finetune/trained_models/best_model_action-msa-pe_l.pth"
   args:
     backbone_name: "resnet18"
     embed_dim: 128
@@ -29,5 +29,5 @@ model:
     output_dim: 7
     modality: "audio-video"
     batchnorm: false
-    positional_encoding: "None"
+    positional_encoding: "learned"
     layernorm: false

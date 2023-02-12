@@ -4,6 +4,9 @@ prep_data/
 wandb/
 *.ipynb
 .vscode/
+.pylintrc
+run_training.sh
+*.png
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

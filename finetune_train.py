@@ -9,13 +9,20 @@ import torch
 import tqdm
 import yaml
 from PIL import Image
-from torchvision import transforms as T
 
 import wandb
 
 # relative imports
 from finetune_models import AvidR3M, MultiSensoryAttention
-from finetune_utils import backbone_transforms, invNormalize, multi_collate, set_seeds
+from finetune_utils import (
+    backbone_transforms,
+    multi_collate,
+    set_seeds,
+    write_audio_spec,
+    write_audio_waveform,
+    write_image,
+    write_video,
+)
 from teleop_prop_data import (
     TeleopActionDataset,
     TeleopCompletionDataset,
@@ -83,7 +90,9 @@ def eval_loop(model, criterion, dataloader, debug=False):
 def vis_preds(
     model,
     dataloader,
+    model_arch="AvidR3M",
     max_samples=15,
+    include_image=True,
     include_audio=False,
     include_orig_audio=False,
     output_dim=1,
@@ -117,72 +126,49 @@ def vis_preds(
             else:
                 log_dict = {"sample_idx": sample_idx}
                 caption = ""
-
-            # GOAL IMAGE
-            # log video, image, audio, and target
-            image = (
-                sample_batch["image"][sample_idx]
-                .detach()
-                .cpu()
-                .numpy()
-                .transpose(1, 2, 0)
-            )
-            # convert to PIL image
-            image = Image.fromarray((image).astype(np.uint8))
-            log_dict["goal_image"] = wandb.Image(image)
+                if sample_idx == 0:
+                    # for each dim in pred and target log wandb histogram
+                    for dim in range(output_dim):
+                        target_pred_diff = target[:, dim] - preds[:, dim]
+                        angle_diff = np.arctan2(
+                            np.sin(target_pred_diff), np.cos(target_pred_diff)
+                        )
+                        log_dict[f"(target-pred)_{dim}"] = wandb.Histogram(angle_diff)
 
             # INPUT VIDEO
             video = sample_batch["video"][sample_idx].detach().cpu()
-            # unnormalize video frames and convert to numpy
-            video_frames = [video[:, i, :, :] for i in range(video.shape[1])]
-            video_frames = [
-                invNormalize(frame).numpy().transpose(1, 2, 0) for frame in video_frames
-            ]
-            video_frames = [
-                Image.fromarray((frame * 255).astype(np.uint8))
-                for frame in video_frames
-            ]
-            video_frames[0].save(
-                "./temp_imgs/sample_vid.gif",
-                save_all=True,
-                append_images=video_frames[1:],
-                optimize=False,
-                duration=500,
-                loop=0,
-            )
-            log_dict["input_video"] = wandb.Video(
-                "./temp_imgs/sample_vid.gif",
+            log_dict["input_video"] = write_video(
+                video,
+                model_arch=model_arch,
+                name="./temp_imgs/sample_vid.gif",
                 fps=30,
-                format="gif",
+                duration=500,
                 caption=caption,
+                wandb_log=True,
             )
+
+            if include_image:
+                # GOAL IMAGE
+                image = sample_batch["image"][sample_idx].detach().cpu()
+                # convert to PIL image
+                log_dict["image"] = write_image(image, caption=caption, wandb_log=True)
 
             # INPUT AUDIO
             if include_audio:
-                audio = sample_batch["audio"][sample_idx].detach().cpu().numpy()
-                # display melspec of audio
-                plt.figure()
-                s_db = librosa.amplitude_to_db(np.abs(audio[0]), ref=np.max)
-                librosa.display.specshow(s_db, sr=16000, x_axis="time", y_axis="linear")
-                plt.colorbar()
-                plt.savefig("./temp_imgs/spec.png")
-                plt.clf()
-                plt.close()
-                log_dict["audio"] = wandb.Image("./temp_imgs/spec.png")
+                audio = sample_batch["audio"][sample_idx].detach().cpu()
+                log_dict["audio"] = write_audio_spec(
+                    audio, name="./temp_imgs/spec.png", caption=caption, wandb_log=True
+                )
 
             # ORIG AUDIO
             if include_orig_audio:
-                orig_audio = (
-                    sample_batch["orig_audio"][sample_idx].detach().cpu().numpy()
+                orig_audio = sample_batch["orig_audio"][sample_idx].detach().cpu()
+                log_dict["orig_audio"] = write_audio_waveform(
+                    orig_audio,
+                    name="./temp_imgs/orig_audio.png",
+                    caption=caption,
+                    wandb_log=True,
                 )
-                # display untransformed audio
-                plt.figure()
-                plt.plot(list(range(orig_audio.shape[0])), orig_audio)
-                plt.ylim([1600, 2400])
-                plt.savefig("./temp_imgs/orig_audio.png")
-                plt.clf()
-                plt.close()
-                log_dict["orig_audio"] = wandb.Image("./temp_imgs/orig_audio.png")
 
             # save to wandb
             wandb.log(log_dict)
@@ -223,7 +209,7 @@ def main():
         print(f"\t{arg}: {getattr(args, arg)}")
 
     # load model configs
-    model_config = yaml.safe_load(open(args.model_config_file, "r"))
+    model_config = yaml.safe_load(open(args.model_config_file, "rb"))
     model_args = model_config["model"]["args"]
     model_arch = model_config["model"]["arch"]
     model_name = model_config["model_name"]
@@ -267,23 +253,19 @@ def main():
         model = AvidR3M(**model_args).to(DEVICE)
         frozen_backbone = model_args["frozen_backbone"]
         include_image = True
-        include_audio = False if model_args["modality"] == "video" else True
-        include_orig_audio = (
-            False if mode == "train" or model_args["modality"] == "video" else True
-        )
     elif model_arch == "MultiSensoryAttention":
         model = MultiSensoryAttention(**model_args).to(DEVICE)
         frozen_backbone = False
         include_image = False
-        include_audio = True
-        include_orig_audio = False if mode == "train" else True
     else:
         raise NotImplementedError(f"arch {model_arch} not implemented")
+    include_audio = model_args["modality"] == "audio-video"
+    include_orig_audio = mode == "vis" and model_args["modality"] == "audio-video"
 
     wandb.watch(model, log="all", log_freq=100)
 
     # DATA
-    print(f"\n##### DATA #####")
+    print("\n##### DATA #####")
     collate_func = partial(
         multi_collate,
         device=DEVICE,
@@ -366,7 +348,7 @@ def main():
             optimizer = torch.optim.SGD(trainable_params, lr=MLP_LR)
 
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", patience=4
+            optimizer, mode="min", patience=3, threshold=1e-2, verbose=True
         )
 
         best_val_loss = np.inf
@@ -388,9 +370,9 @@ def main():
                     optimizer = torch.optim.SGD(trainable_params, lr=MLP_LR)
 
                 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                    optimizer, mode="min", patience=4
+                    optimizer, mode="min", patience=3, threshold=1e-2, verbose=True
                 )
-                print(f"##### UNFREEZING BACKBONE #####")
+                print("##### UNFREEZING BACKBONE #####")
 
             train_loss = train_loop(
                 model, optimizer, criterion, train_loader, debug=debug
@@ -409,18 +391,18 @@ def main():
                 )
             scheduler.step(val_loss)
 
-            # TODO: implement visualizations for MultiSensoryAttention data
-            # TODO: could place multiple images in the same frame and upload to wandb
             # log visualizations / preds
-            # if epoch % log_freq == 0:
-            #     vis_preds(
-            #         model,
-            #         val_loader,
-            #         max_samples=num_samples_log,
-            #         include_audio=include_audio,
-            #         include_orig_audio=include_orig_audio,
-            #         output_dim=model_args["output_dim"],
-            #     )
+            if epoch % log_freq == 0:
+                vis_preds(
+                    model,
+                    val_loader,
+                    model_arch=model_arch,
+                    max_samples=num_samples_log,
+                    include_image=include_image,
+                    include_audio=include_audio,
+                    include_orig_audio=include_orig_audio,
+                    output_dim=model_args["output_dim"],
+                )
 
     elif mode == "vis":
         # VISUALIZE
@@ -431,9 +413,12 @@ def main():
         vis_preds(
             model,
             val_loader,
+            model_arch=model_arch,
             max_samples=num_samples_log,
+            include_image=include_image,
             include_audio=include_audio,
             include_orig_audio=include_orig_audio,
+            output_dim=model_args["output_dim"],
         )
 
     else:
