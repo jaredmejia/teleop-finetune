@@ -11,7 +11,7 @@ CONTACT_AUDIO_FREQ = 32000
 CONTACT_AUDIO_MAX = 2400
 CONTACT_AUDIO_AVG = 2061
 CONTACT_AUDIO_STD = 28
-WINDOW_DUR = 3
+WINDOW_DUR = 1  # 3
 
 
 class SpecEncoder:
@@ -89,28 +89,28 @@ class SpecEncoder:
 
 
 class SequentialVisualTransform(object):
-    def __init__(self, seq_length=6):
-        self.seq_length = seq_length
-        self.resize = T.Resize(size=(140, 105))
+    def __init__(self, seq_len=6):
+        self.seq_len = seq_len
+        self.resize = T.Resize(size=(240, 320))
         self.to_tensor = T.ToTensor()
 
     def __call__(self, data, train=True):
         """Data is a list of 6 images"""
         # left padding with first image
-        if len(data) < self.seq_length:
-            data = [data[0]] * (self.seq_length - len(data)) + data
+        if len(data) < self.seq_len:
+            data = [data[0]] * (self.seq_len - len(data)) + data
 
         # resize
         data = [self.resize(img) for img in data]
 
         if train:
             # same random crop for all images
-            i, j, h, w = T.RandomCrop.get_params(data[0], (128, 96))
+            i, j, h, w = T.RandomCrop.get_params(data[0], (192, 256))
             crop = T.Lambda(lambda img: TF.crop(img, i, j, h, w))
             data = [crop(img) for img in data]
         else:
             # center crop
-            data = [TF.center_crop(img, (128, 96)) for img in data]
+            data = [TF.center_crop(img, (192, 256)) for img in data]
 
         # to tensor
         data = [self.to_tensor(img) for img in data]
@@ -147,11 +147,8 @@ def plot_specgram(waveform, sample_rate, title="Spectrogram", xlim=None):
 
 
 def main():
-    # spec_encoder = Spec_Encoder(num_stack=5, norm_audio=True, norm_freq=False)
     spec_encoder = SpecEncoder(num_stack=6, norm_audio=True, norm_freq=True)
 
-    # waveform, sr = torchaudio.load("test.wav")
-    waveform = torch.rand(1, CONTACT_AUDIO_FREQ)
     import glob
 
     txt_files = sorted(
@@ -159,6 +156,7 @@ def main():
             "/home/vdean/franka_demo/logs/jared_chopping_exps_v4/pos_1/22-12-08-19-27-14/*.txt"
         )
     )[-180:-90]
+
     txt_list = []
     for txt_path in txt_files:
         txt_arr = np.loadtxt(txt_path)
@@ -167,46 +165,8 @@ def main():
     audio_data = np.concatenate(txt_list, axis=1)
     print(f"audio_data shape : {audio_data.shape}")
 
-    # waveform = np.mean(audio_data, axis=0, keepdims=True)
-    # waveform = (waveform - CONTACT_AUDIO_AVG) / CONTACT_AUDIO_MAX
-
-    # plot_specgram(waveform, 32000, title="Spectrogram", xlim=None)
-    # plt.savefig("./shf_specgram.png")
-    # plt.clf()
-
-    # plt.plot(list(range(waveform.shape[1])), waveform[0])
-    # plt.savefig("./shf_audio.png")
-    # plt.clf()
-
-    # # print(f'waveform shape : {waveform.shape}')
-    # # waveform = torch.from_numpy(waveform)
-
-    # spec = spec_encoder.forward(waveform.unsqueeze(0))
     spec = spec_encoder(audio_data)
-
     print(spec.shape)
-    # plot_spectrogram(
-    #     spec.detach().numpy(),
-    #     title="Spectrogram (db)",
-    #     ylabel="freq_bin",
-    #     aspect="auto",
-    #     xmax=None,
-    # )
-    # plt.savefig("./shf_spec_2.png")
-    # plt.clf()
-    # # import matplotlib.pyplot as plt
-    # # import librosa
-    # import librosa.display
-
-    # # import numpy as np
-    # plt.figure()
-    # s_db = librosa.amplitude_to_db(np.abs(spec.numpy()), ref=np.max)
-    # # s_db = librosa.amplitude_to_db(np.abs(spec.numpy()[0, 0, :, :]))
-
-    # librosa.display.specshow(s_db, sr=16000, x_axis="time", y_axis="linear")
-    # plt.colorbar()
-    # plt.savefig("./shf_spec.png")
-    # plt.clf()
 
 
 if __name__ == "__main__":
